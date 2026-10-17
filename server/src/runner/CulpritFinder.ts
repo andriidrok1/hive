@@ -1,5 +1,5 @@
 import type { ChangeSet, CulpritReport, CulpritVariant, IntentId, Runner, Snapshot } from "@hive/shared";
-import { applyEdits } from "./applyEdits.js";
+import { applyEdits } from "../core/index.js";
 import { Semaphore } from "./util.js";
 
 export const MAX_SUSPECTS = 6;

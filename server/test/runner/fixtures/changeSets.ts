@@ -1,6 +1,6 @@
 import { createPatch } from "diff";
 import type { ChangeSet, IntentId, Snapshot } from "@hive/shared";
-import { applyEdits } from "../../../src/runner/applyEdits.js";
+import { applyEdits } from "../../../src/core/index.js";
 import { DEMO_APP_FILES } from "./demoApp.js";
 
 export interface EditSpec {
