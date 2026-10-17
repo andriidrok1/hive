@@ -56,6 +56,7 @@ export interface AgentManagerOptions {
   onTerminal?: (agentId: AgentId, status: AgentStatus) => void;
 }
 
+export const AGENT_COLORS = ["#7c5cff", "#3b82f6", "#22c55e", "#f59e0b", "#ec4899"] as const;
 export const DEFAULT_MAX_TOOL_CALLS = 60;
 export const DEFAULT_MAX_MS = 10 * 60_000;
 
@@ -71,6 +72,7 @@ export class AgentManager implements AgentManagerLike {
   private readonly running = new Map<AgentId, Running>();
   readonly maxToolCalls: number;
   readonly maxMs: number;
+  private colorSeq = 0;
 
   constructor(private readonly opts: AgentManagerOptions) {
     this.maxToolCalls = opts.maxToolCalls ?? envNumber("HIVE_AGENT_MAX_TOOL_CALLS") ?? DEFAULT_MAX_TOOL_CALLS;
@@ -80,7 +82,7 @@ export class AgentManager implements AgentManagerLike {
   register(agentId: AgentId, humanId: HumanId, owns?: string[]): AgentRecord {
     let rec = this.agents.get(agentId);
     if (!rec) {
-      rec = { agentId, humanId, status: "idle", control: "run" };
+      rec = { agentId, humanId, status: "idle", control: "run", color: AGENT_COLORS[this.colorSeq++ % AGENT_COLORS.length] as string };
       this.agents.set(agentId, rec);
     } else if (rec.humanId !== humanId) {
       rec.humanId = humanId;

@@ -2,7 +2,7 @@
 // Wire format (same as y-websocket): varUint message type, then payload.
 //   0 = sync (y-protocols/sync), 1 = awareness (y-protocols/awareness).
 // The stock WebsocketProvider client connects unchanged.
-import type * as Y from "yjs";
+import * as Y from "yjs";
 import type { WebSocket, RawData } from "ws";
 import * as encoding from "lib0/encoding";
 import * as decoding from "lib0/decoding";
@@ -18,16 +18,28 @@ export interface AwarenessUser {
   kind?: "human" | "agent";
 }
 
+/** Awareness state in the shape y-codemirror.next renders: a named colored caret. */
+export interface AgentPresenceState {
+  user: { name: string; color: string; kind: "agent" };
+  cursor: { anchor: unknown; head: unknown };
+}
+
+const AGENT_CLIENT_BASE = 0x40000000; // synthetic awareness client ids live far from Yjs's random 32-bit ids
+
 export class YjsHub {
   private doc: Y.Doc | null = null;
   private awareness: awarenessProtocol.Awareness | null = null;
   private readonly conns = new Map<WebSocket, Set<number>>(); // conn -> awareness client ids it controls
   private detach: (() => void) | null = null;
+  /** One synthetic awareness client per agent: fake clientID + the clock we advance like a remote peer would. */
+  private readonly agentClients = new Map<string, { clientId: number; clock: number }>();
+  private nextAgentClient = 0;
 
   /** Binds (or re-binds) the hub to a document; existing connections are closed so clients resync. */
   bind(doc: Y.Doc): void {
     this.closeAll(4000, "rebind");
     this.detach?.();
+    this.agentClients.clear(); // the old awareness dies with the old doc; clients reconnect to a clean one
     this.doc = doc;
     const awareness = new awarenessProtocol.Awareness(doc);
     awareness.setLocalState(null);
@@ -77,6 +89,42 @@ export class YjsHub {
       if (state?.user) return state.user;
     }
     return undefined;
+  }
+
+  /**
+   * Publishes (or with null, removes) an agent's caret as if a remote client had sent it: the update
+   * goes through applyAwarenessUpdate, so states/meta/clock are maintained by y-protocols itself and
+   * the hub's own awareness listener broadcasts it to every connection.
+   */
+  setAgentPresence(agentId: string, state: AgentPresenceState | null): void {
+    const awareness = this.awareness;
+    if (!awareness) return;
+    let client = this.agentClients.get(agentId);
+    if (!client) {
+      if (state === null) return;
+      client = { clientId: AGENT_CLIENT_BASE + this.nextAgentClient++, clock: 0 };
+      this.agentClients.set(agentId, client);
+    }
+    client.clock += 1;
+    const encoder = encoding.createEncoder();
+    encoding.writeVarUint(encoder, 1);
+    encoding.writeVarUint(encoder, client.clientId);
+    encoding.writeVarUint(encoder, client.clock);
+    encoding.writeVarString(encoder, JSON.stringify(state));
+    awarenessProtocol.applyAwarenessUpdate(awareness, encoding.toUint8Array(encoder), "agent-presence");
+    if (state === null) this.agentClients.delete(agentId);
+  }
+
+  /** Cursor state for an index inside a file of the bound doc, or null if the file is not in it. */
+  cursorAt(path: string, index: number): AgentPresenceState["cursor"] | null {
+    const text = this.doc?.getMap<Y.Text>("files").get(path);
+    if (!text) return null;
+    const pos = Y.relativePositionToJSON(Y.createRelativePositionFromTypeIndex(text, Math.max(0, Math.min(index, text.length))));
+    return { anchor: pos, head: pos };
+  }
+
+  agentPresenceCount(): number {
+    return this.agentClients.size;
   }
 
   connectionCount(): number {
