@@ -4,7 +4,7 @@ Hive is a shared live project for people and their coding agents. Every human br
 
 ## Why
 
-The ICML 2026 position paper on concurrency control for multi-agent systems makes the point that agents editing one codebase behave like transactions without isolation: each one reasons from a snapshot that may already be stale. The failure is mundane. Agent A reads `format.ts`, plans a call to `formatPrice`; agent B renames it to `formatCents` and updates the call sites it knows about; A writes its code a minute later and the suite dies with an ImportError that neither agent caused alone. Text-level merging cannot see this, because the two edits never touch the same lines.
+The ICML 2026 position paper *Multi-Agent Systems Should Prioritize Concurrency Control* (Yang, Li, Ji, Zhang, Jiang; arXiv 2608.18092) makes the point that agents editing one codebase behave like transactions without isolation: each one reasons from a snapshot that may already be stale. The failure is mundane. Agent A reads `format.ts`, plans a call to `formatPrice`; agent B renames it to `formatCents` and updates the call sites it knows about; A writes its code a minute later and the suite dies with an ImportError that neither agent caused alone. Text-level merging cannot see this, because the two edits never touch the same lines.
 
 Hive treats reads, intents and edits as the units of coordination:
 
