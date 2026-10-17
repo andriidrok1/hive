@@ -366,6 +366,29 @@ describe("runAgent: signals (test 7)", () => {
   });
 });
 
+describe("runAgent: reasoning_effort fallback", () => {
+  const reject = () => Object.assign(new Error("400 Function tools with reasoning_effort are not supported for gpt-x in /v1/chat/completions. To use function tools, use /v1/responses or set reasoning_effort to 'none'."), { status: 400, name: "BadRequestError" });
+
+  it("starts with low, retries the same step with none after the 400, and remembers it for the model", async () => {
+    const ai = new FakeOpenAI([{ error: reject() }, { tool: "list_files", args: {} }, { text: "done" }]);
+    const res = await runAgent({ ...base, client: new FakeHive(), openai: ai.asOpenAI(), model: "gpt-fallback-a" });
+    expect(res.status).toBe("done");
+    expect(ai.requests.map((r) => r.body.reasoning_effort)).toEqual(["low", "none", "none"]);
+    expect(ai.requests[1]!.body.messages).toHaveLength(2); // same step: nothing was appended between the attempts
+
+    const ai2 = new FakeOpenAI([{ text: "done" }]);
+    await runAgent({ ...base, client: new FakeHive(), openai: ai2.asOpenAI(), model: "gpt-fallback-a" });
+    expect(ai2.requests[0]!.body.reasoning_effort).toBe("none");
+  });
+
+  it("other 400s are not retried and end with error", async () => {
+    const ai = new FakeOpenAI([{ error: Object.assign(new Error("400 context_length_exceeded"), { status: 400 }) }]);
+    const res = await runAgent({ ...base, client: new FakeHive(), openai: ai.asOpenAI(), model: "gpt-fallback-b" });
+    expect(res.status).toBe("error");
+    expect(ai.requests).toHaveLength(1);
+  });
+});
+
 describe("runAgent: accounting (test 8)", () => {
   it("sums tokens and ms from usage fields and reports them per call", async () => {
     const events: AgentEvent[] = [];

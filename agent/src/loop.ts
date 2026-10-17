@@ -21,6 +21,9 @@ export interface RunOptions {
   onEvent?: (e: AgentEvent) => void;
   mode?: HiveMode; // "naive"/"isolated" use a prompt without intents
   pauseMs?: number; // poll interval while control is "pause", default 2000 (tests use a small value)
+  // Contract says "low". The API rejects it for gpt-5.4-mini + function tools on Chat Completions
+  // (400 "set reasoning_effort to 'none'"), so the loop falls back to "none" once per model and remembers it.
+  reasoningEffort?: OpenAI.ReasoningEffort;
 }
 
 export interface RunResult {
@@ -34,6 +37,20 @@ export interface RunResult {
 }
 
 export const DEFAULT_MODEL = "gpt-5.4-mini";
+export const DEFAULT_REASONING_EFFORT: OpenAI.ReasoningEffort = "low";
+
+// Per-process memory of models that rejected reasoning_effort with tools; keyed by model name.
+const effortByModel = new Map<string, OpenAI.ReasoningEffort>();
+export function resetReasoningEffortCache(): void {
+  effortByModel.clear();
+}
+
+function rejectsReasoningEffort(e: unknown): boolean {
+  if (!e || typeof e !== "object") return false;
+  const status = (e as { status?: unknown }).status;
+  const message = String((e as { message?: unknown }).message ?? "");
+  return status === 400 && /reasoning_effort/i.test(message);
+}
 export const DEFAULTS = { maxToolCalls: 40, maxMs: 15 * 60_000, maxTokens: 400_000, pauseMs: 2000 } as const;
 
 type Msg = OpenAI.Chat.ChatCompletionMessageParam;
@@ -89,6 +106,7 @@ export async function runAgent(opts: RunOptions): Promise<RunResult> {
   const maxMs = opts.maxMs ?? DEFAULTS.maxMs;
   const maxTokens = opts.maxTokens ?? DEFAULTS.maxTokens;
   const pauseMs = opts.pauseMs ?? DEFAULTS.pauseMs;
+  let reasoningEffort: OpenAI.ReasoningEffort = effortByModel.get(model) ?? opts.reasoningEffort ?? DEFAULT_REASONING_EFFORT;
   const { client, signal, interrupt, onEvent } = opts;
 
   let openai = opts.openai;
@@ -203,12 +221,18 @@ export async function runAgent(opts: RunOptions): Promise<RunResult> {
     let completion: OpenAI.Chat.ChatCompletion;
     try {
       completion = await openai.chat.completions.create(
-        { model, messages, tools: TOOL_SCHEMAS, parallel_tool_calls: false, reasoning_effort: "low" },
+        { model, messages, tools: TOOL_SCHEMAS, parallel_tool_calls: false, reasoning_effort: reasoningEffort },
         { signal: callSignal, timeout: Math.max(5_000, maxMs - elapsed()) },
       );
     } catch (e) {
       const ms = Date.now() - t0;
-      emit({ type: "llm_call", model, ms, tokensIn: 0, tokensOut: 0, step, error: errMessage(e) });
+      emit({ type: "llm_call", model, ms, tokensIn: 0, tokensOut: 0, step, error: errMessage(e), reasoningEffort });
+      if (reasoningEffort !== "none" && rejectsReasoningEffort(e)) {
+        reasoningEffort = "none";
+        effortByModel.set(model, "none");
+        step -= 1;
+        continue; // same step again without reasoning effort
+      }
       if (signal?.aborted) return finish("stopped");
       if (interruptSignal?.aborted || (isAbortError(e) && interruptSignal)) {
         // Urgent human note: pick it up as a briefing, then redo this step with a fresh interrupt signal.
@@ -225,7 +249,7 @@ export async function runAgent(opts: RunOptions): Promise<RunResult> {
     const outTok = usage?.completion_tokens ?? 0;
     tokensIn += inTok;
     tokensOut += outTok;
-    emit({ type: "llm_call", model, ms, tokensIn: inTok, tokensOut: outTok, step });
+    emit({ type: "llm_call", model, ms, tokensIn: inTok, tokensOut: outTok, step, reasoningEffort });
 
     const choice = completion.choices[0];
     if (!choice) return finish("error", { error: "model returned no choices" });
