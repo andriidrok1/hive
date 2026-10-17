@@ -27,9 +27,12 @@ export class UnknownAgentError extends Error {
   }
 }
 
+// "NOT_OWNER" is being added to shared's ToolErrorCode; typed loosely here until it lands.
+type ToolCode = ToolErrorCode | "NOT_OWNER";
+
 class ToolError extends Error {
   constructor(
-    readonly code: ToolErrorCode,
+    readonly code: ToolCode,
     message: string,
     readonly current?: string,
   ) {
@@ -216,7 +219,7 @@ export function toolHandlers(ctx: HiveContext): ToolHandlers {
         return { ok: true, data, ...envelope() };
       } catch (err) {
         const e = toToolError(err);
-        const error: ToolResponse["error"] = { code: e.code, message: e.message };
+        const error: ToolResponse["error"] = { code: e.code as ToolErrorCode, message: e.message };
         if (e.current !== undefined) error.current = e.current;
         return { ok: false, error, ...envelope() };
       }
@@ -240,11 +243,12 @@ async function execute<T extends ToolName>(ctx: HiveContext, h: ToolHandlers, ag
     case "list_files": {
       const files = store.listFiles().map((f) => {
         const active = activeIntentsFor(d, f.path);
-        if (active.length === 0) return f;
+        const owners = [...new Set([...staticOwners(ctx, f.path).map((a) => a.humanId), ...active.map((i) => i.humanId)])];
+        if (active.length === 0 && owners.length === 0) return f;
         return {
           ...f,
           activeIntents: active.map((i) => ({ id: i.id, agentId: i.agentId, symbol: i.symbol })),
-          owners: [...new Set(active.map((i) => i.humanId))],
+          owners,
         };
       });
       return { files } as ToolResults[T];
@@ -283,6 +287,7 @@ async function execute<T extends ToolName>(ctx: HiveContext, h: ToolHandlers, ag
 
     case "declare_intent": {
       const a = args as ToolArgs["declare_intent"];
+      requireOwnership(ctx, agentId, a.target.file);
       const result = await d.intents.declare(agentId, humanId, a, store.rev);
       d.history.beginIntent(result.intent);
       return result as ToolResults[T];
@@ -290,6 +295,7 @@ async function execute<T extends ToolName>(ctx: HiveContext, h: ToolHandlers, ag
 
     case "edit_region": {
       const a = args as ToolArgs["edit_region"];
+      requireOwnership(ctx, agentId, a.path);
       const intentId = gateEdit(ctx, agentId, a.intentId);
       const r = store.editRegion(intentId ? { actor: agentId, intentId, path: a.path, oldText: a.oldText, newText: a.newText } : { actor: agentId, path: a.path, oldText: a.oldText, newText: a.newText });
       if (!r.ok) throw new ToolError(r.code, editMessage(r.code, a.path), r.current);
@@ -299,6 +305,7 @@ async function execute<T extends ToolName>(ctx: HiveContext, h: ToolHandlers, ag
 
     case "create_file": {
       const a = args as ToolArgs["create_file"];
+      requireOwnership(ctx, agentId, a.path);
       const intentId = gateEdit(ctx, agentId, a.intentId);
       const r = store.createFile(intentId ? { actor: agentId, intentId, path: a.path, content: a.content } : { actor: agentId, path: a.path, content: a.content });
       if (!r.ok) throw new ToolError("BAD_ARGS", `cannot create ${a.path}: it exists or the path is not inside the project`);
@@ -377,6 +384,28 @@ async function execute<T extends ToolName>(ctx: HiveContext, h: ToolHandlers, ag
     default:
       throw new ToolError("BAD_ARGS", `unknown tool ${String(tool)}`);
   }
+}
+
+/** True when `path` falls inside an ownership list: exact path, or under a prefix ending with "/". */
+export function ownsPath(owns: readonly string[], path: string): boolean {
+  return owns.some((o) => (o.endsWith("/") ? path.startsWith(o) : o === path));
+}
+
+/** Agents whose declared `owns` cover the path. */
+export function staticOwners(ctx: HiveContext, path: string): { agentId: AgentId; humanId: string }[] {
+  return ctx.agents
+    .list()
+    .filter((a) => a.owns !== undefined && ownsPath(a.owns, path))
+    .map((a) => ({ agentId: a.agentId, humanId: a.humanId }));
+}
+
+/** Ownership zones: an agent with `owns` may only declare on / edit / create its own files. Agents without `owns` are unrestricted. */
+function requireOwnership(ctx: HiveContext, agentId: AgentId, path: string): void {
+  const me = ctx.agents.get(agentId);
+  if (!me?.owns || ownsPath(me.owns, path)) return;
+  const owner = staticOwners(ctx, path).find((o) => o.agentId !== agentId);
+  const who = owner ? `is owned by ${owner.agentId} (${owner.humanId})` : "is outside your files";
+  throw new ToolError("NOT_OWNER", `${path} ${who}. Do not edit it; use ask_agent to tell the owner what you need.`);
 }
 
 export interface ActiveIntent {

@@ -21,8 +21,9 @@ export function hiveState(ctx: HiveContext): HiveState {
     rev: d.store.rev,
     files: d.store.listFiles(),
     agents: ctx.agents.list().map((a) => {
-      const row: HiveState["agents"][number] = { agentId: a.agentId, humanId: a.humanId, status: a.status, control: a.control };
+      const row: HiveState["agents"][number] & { owns?: string[] } = { agentId: a.agentId, humanId: a.humanId, status: a.status, control: a.control };
       if (a.task !== undefined) row.task = a.task;
+      if (a.owns !== undefined) row.owns = [...a.owns];
       return row;
     }),
     intents: d.intents.list(),
@@ -115,7 +116,12 @@ export function registerHumanRoutes(app: FastifyInstance, ctx: HiveContext, tool
       return bad(reply, "body must be { agentId, humanId, task }");
     }
     if (!b.agentId || !b.humanId) return bad(reply, "agentId and humanId must not be empty");
-    const r = ctx.agents.start({ agentId: b.agentId, humanId: b.humanId, task: b.task });
+    let owns: string[] | undefined;
+    if (b.owns !== undefined) {
+      if (!Array.isArray(b.owns) || b.owns.some((o) => typeof o !== "string" || !o)) return bad(reply, "owns must be an array of project-relative paths or directory prefixes ending with /");
+      owns = (b.owns as string[]).map((o) => o.replace(/^\.?\//, ""));
+    }
+    const r = ctx.agents.start(owns ? { agentId: b.agentId, humanId: b.humanId, task: b.task, owns } : { agentId: b.agentId, humanId: b.humanId, task: b.task });
     if (!r.ok) return reply.code(409).send({ ok: false, error: { code: r.code, message: `${b.agentId} is already running` } });
     return { ok: true };
   });

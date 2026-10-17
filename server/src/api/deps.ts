@@ -138,14 +138,16 @@ export interface AgentRecord {
   status: AgentStatus;
   task?: string;
   control: AgentControl;
+  /** Ownership zone: project-relative paths or directory prefixes ending with "/". Absent = unrestricted. */
+  owns?: string[];
 }
 
 export interface AgentManagerLike {
   /** Makes an agent known to the tool API without running a loop (external agents, tests). */
-  register(agentId: AgentId, humanId: HumanId): AgentRecord;
+  register(agentId: AgentId, humanId: HumanId, owns?: string[]): AgentRecord;
   get(agentId: AgentId): AgentRecord | undefined;
   list(): AgentRecord[];
-  start(input: { agentId: AgentId; humanId: HumanId; task: string }): { ok: true } | { ok: false; code: "ALREADY_RUNNING" };
+  start(input: { agentId: AgentId; humanId: HumanId; task: string; owns?: string[] }): { ok: true } | { ok: false; code: "ALREADY_RUNNING" };
   control(agentId: AgentId, control: AgentControl): boolean;
   controlOf(agentId: AgentId): AgentControl;
   note(agentId: AgentId, humanId: HumanId, text: string, urgent: boolean): boolean;
