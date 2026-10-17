@@ -116,7 +116,15 @@ Scenario s01 "tax added twice", two agents started at the same moment, `HIVE_MOD
 - Agent latency with gpt-5.4-mini: about 1 s per model call; a full 8-tool task finishes in under 10 s.
 - Freestyle runner, measured 17 Oct: VM from snapshot 140 to 390 ms, suite about 2 s per VM, 6 culprit variants in 3.8 s wall time.
 
-<!-- BENCH TABLE -->
+| Scenario | hive | naive (shared, no coordination) | isolated (per-agent copies + merge) |
+|---|---|---|---|
+| s01 double tax (semantic conflict) | 0/2 (460k tok) | 0/2 (460k tok) | 0/2 (227k tok) |
+| s02 rename vs new call site | 1/2 (317k tok) | 2/2 (145k tok) | 0/2 (108k tok) |
+| c01 control (no conflict) | 2/2 (62k tok) | 2/2 (44k tok) | 2/2 (48k tok) |
+| **total** | **3/6** | **4/6** | **2/6** |
+
+Two repeats per cell, second agent starts 3 s after the first, gpt-5.4-mini, local runner. Hive's culprit report was correct in 6/6 searches; no false alarms on the control scenario for any variant. Hive costs ~1.3x the tokens of naive. On these three scenarios naive agents still win on raw pass rate: coordination buys a correct diagnosis and visibility, not yet a higher green rate. Raw data: `bench/results-final/`.
+
 
 ## Limitations
 
