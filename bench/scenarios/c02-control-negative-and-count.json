@@ -6,15 +6,26 @@
     {
       "agentId": "agent-andrii",
       "humanId": "andrii",
-      "task": "Make formatPrice in src/format.ts handle negative amounts: formatPrice(-1234) must return \"-$12.34\" (positive values unchanged). Add a test."
+      "task": "Make formatPrice in src/format.ts handle negative amounts: formatPrice(-1234) must return \"-$12.34\" (positive values unchanged). Add a test. You own src/format.ts and test/format.test.ts.",
+      "owns": [
+        "src/format.ts",
+        "test/format.test.ts"
+      ]
     },
     {
       "agentId": "agent-masha",
       "humanId": "masha",
-      "task": "Add an exported helper itemCount(items: Item[]): number to src/checkout.ts that returns the sum of all qty values (0 for an empty cart). Add tests in test/checkout.test.ts."
+      "task": "Add an exported helper itemCount(items: Item[]): number to src/checkout.ts that returns the sum of all qty values (0 for an empty cart). Add tests in test/checkout.test.ts. You own src/checkout.ts and test/checkout.test.ts.",
+      "owns": [
+        "src/checkout.ts",
+        "test/checkout.test.ts"
+      ]
     }
   ],
-  "startDelaysMs": { "agent-andrii": 0, "agent-masha": 20000 },
+  "startDelaysMs": {
+    "agent-andrii": 0,
+    "agent-masha": 3000
+  },
   "expectedCulprits": [],
   "acceptance": "npm test",
   "extraTests": "test/c02.accept.test.ts",

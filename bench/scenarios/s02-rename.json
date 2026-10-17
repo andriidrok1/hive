@@ -6,16 +6,32 @@
     {
       "agentId": "agent-andrii",
       "humanId": "andrii",
-      "task": "Rename formatPrice to formatCents everywhere: src/format.ts, every call site (src/order.ts) and every test. Do not keep an alias or re-export for the old name."
+      "task": "Rename formatPrice to formatCents everywhere: src/format.ts, every call site (src/order.ts) and every test. Do not keep an alias or re-export for the old name. You own src/format.ts, src/order.ts and their existing tests.",
+      "owns": [
+        "src/format.ts",
+        "src/order.ts",
+        "test/format.test.ts",
+        "test/order.test.ts"
+      ]
     },
     {
       "agentId": "agent-masha",
       "humanId": "masha",
-      "task": "Add a new module src/receipt.ts exporting receiptLine(item: Item): string that returns `${item.sku} x${item.qty} @ ${unit} = ${lineTotal}` where unit and lineTotal are formatted with formatPrice from src/format.ts (for a 250-cent pen, qty 2: \"pen x2 @ $2.50 = $5.00\"). Add tests in test/receipt.test.ts."
+      "task": "Add a new module src/receipt.ts exporting receiptLine(item: Item): string that returns `${item.sku} x${item.qty} @ ${unit} = ${lineTotal}` where unit and lineTotal are formatted with formatPrice from src/format.ts (for a 250-cent pen, qty 2: \"pen x2 @ $2.50 = $5.00\"). Add tests in test/receipt.test.ts. You own src/receipt.ts and test/receipt.test.ts; do not edit other files.",
+      "owns": [
+        "src/receipt.ts",
+        "test/receipt.test.ts"
+      ]
     }
   ],
-  "startDelaysMs": { "agent-andrii": 0, "agent-masha": 20000 },
-  "expectedCulprits": ["agent-andrii", "agent-masha"],
+  "startDelaysMs": {
+    "agent-andrii": 0,
+    "agent-masha": 3000
+  },
+  "expectedCulprits": [
+    "agent-andrii",
+    "agent-masha"
+  ],
   "acceptance": "npm test",
   "extraTests": "test/s02.accept.test.ts",
   "notes": "Textually clean: A edits format.ts/order.ts/tests, B adds receipt.ts. Together receipt.ts imports a name that no longer exists and its test file fails to load."

@@ -7,6 +7,9 @@ export interface ScenarioAgent {
   agentId: AgentId;
   humanId: HumanId;
   task: string;
+  // Files this agent is told it owns. The first agent is "A" (a.patch), the second "B" (b.patch).
+  // A reference patch alone may leave tests red only inside files the other agent owns.
+  owns?: string[];
 }
 
 export interface Scenario {
@@ -49,7 +52,10 @@ export function validateScenario(raw: unknown, file = "<inline>"): Scenario {
     if (typeof a.agentId !== "string" || !a.agentId) return fail(`agents[${i}].agentId required`);
     if (typeof a.humanId !== "string" || !a.humanId) return fail(`agents[${i}].humanId required`);
     if (typeof a.task !== "string" || a.task.length < 10) return fail(`agents[${i}].task too short`);
-    return { agentId: a.agentId, humanId: a.humanId, task: a.task };
+    if (a.owns !== undefined && !(Array.isArray(a.owns) && a.owns.every((f) => typeof f === "string" && /^(src|test)\//.test(f)))) {
+      return fail(`agents[${i}].owns must list src/ or test/ paths`);
+    }
+    return { agentId: a.agentId, humanId: a.humanId, task: a.task, ...(a.owns ? { owns: a.owns as string[] } : {}) };
   });
   const ids = parsedAgents.map((a) => a.agentId);
   if (new Set(ids).size !== 2) return fail("agentIds must differ");

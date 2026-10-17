@@ -4,7 +4,7 @@ Scenarios, verified reference patches and the experiment runner for the demo app
 
 ## Layout
 
-- `scenarios/<id>.json`: two agents, their tasks, start delays, expected culprits. `scenarios/extra/<name>.accept.test.ts` is the file added to the project as `extraTests` at the end of a run; it encodes the intended combined behavior.
+- `scenarios/<id>.json`: two agents, their tasks, the files each owns (`owns`; a reference patch alone may leave tests red only in the other agent's files), start delays (second agent at 3 s so the work overlaps), expected culprits. `scenarios/extra/<name>.accept.test.ts` is the file added to the project as `extraTests` at the end of a run; it encodes the intended combined behavior.
 - `reference/<id>/{a,b,combined}.patch`: hand-verified solutions. `a` and `b` each keep their own suite green and apply in either order; `a+b` with the extra tests fails for conflict scenarios and passes for controls; `combined` is the correct merge and passes everything. `npm test -w @hive/bench` checks all of this in `.hive/bench/<id>/` (inside the repo so vitest resolves from the root `node_modules`).
 - `src/run.ts`: the runner. `src/runner.ts` drives one run, `src/feed.ts` counts feed events, `src/summary.ts` writes CSV and markdown.
 
