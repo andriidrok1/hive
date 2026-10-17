@@ -201,6 +201,38 @@ describe("api: state and tool envelope", () => {
     expect(Object.keys(t.runner.testCalls[0]?.files ?? {})).toContain("src/tax.ts");
   });
 
+  it("presence: read_file and list_files show other agents' active intents on a file", async () => {
+    t = await makeHive();
+    register(t, "agent-andrii");
+    register(t, "agent-masha");
+    const before = await t.tool("agent-andrii", "read_file", { path: "src/checkout.ts" });
+    expect((before.data as { activeIntents?: unknown }).activeIntents).toBeUndefined();
+    expect((before.data as { note?: string }).note).toBeUndefined();
+
+    const m1 = await t.tool("agent-masha", "declare_intent", GOOD_INTENT);
+    await t.tool("agent-masha", "edit_region", { intentId: m1.data!.intent.id, path: "src/checkout.ts", oldText: "return applyDiscount(subtotal(items), promo);", newText: "return Math.round(applyDiscount(subtotal(items), promo));" });
+    const m2 = await t.tool("agent-masha", "declare_intent", { ...GOOD_INTENT, target: { file: "src/checkout.ts", symbol: "subtotal" }, what: "skip zero-qty lines in subtotal", output: "ignores items with qty <= 0 when summing" });
+    await t.tool("agent-masha", "finish_intent", { intentId: m2.data!.intent.id }); // no edits -> cancelled, not active
+
+    const read = await t.tool("agent-andrii", "read_file", { path: "src/checkout.ts" });
+    const data = read.data as { content: string; activeIntents?: { id: string; agentId: string; humanId: string; symbol: string; status: string; what: string; output: string }[]; note?: string };
+    expect(data.activeIntents).toEqual([{ id: "M1", agentId: "agent-masha", humanId: "masha", symbol: "calculateTotal", status: "in_progress", what: GOOD_INTENT.what, output: GOOD_INTENT.output }]);
+    expect(data.note).toBe(`agent-masha is working on calculateTotal here (M1, in_progress): ${GOOD_INTENT.what}. Promised: ${GOOD_INTENT.output}.`);
+    expect(data.content.startsWith("import type")).toBe(true); // content stays clean
+
+    const files = await t.tool("agent-andrii", "list_files", {});
+    const rows = files.data!.files as ({ path: string; activeIntents?: { id: string; agentId: string; symbol: string }[]; owners?: string[] })[];
+    const checkout = rows.find((f) => f.path === "src/checkout.ts")!;
+    expect(checkout.activeIntents).toEqual([{ id: "M1", agentId: "agent-masha", symbol: "calculateTotal" }]);
+    expect(checkout.owners).toEqual(["masha"]);
+    expect(rows.find((f) => f.path === "src/format.ts")!.activeIntents).toBeUndefined();
+    expect(rows.filter((f) => f.activeIntents).length).toBe(1);
+
+    // the caller's own intent is listed too
+    const own = await t.tool("agent-masha", "read_file", { path: "src/checkout.ts", startLine: 1, endLine: 3 });
+    expect((own.data as { activeIntents?: { id: string }[] }).activeIntents?.map((i) => i.id)).toEqual(["M1"]);
+  });
+
   it("a filter that matches no tests is not green: run_tests and POST /api/test return ok false with a note", async () => {
     t = await makeHive();
     register(t, "agent-andrii");
