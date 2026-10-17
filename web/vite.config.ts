@@ -13,7 +13,7 @@ function lanIp(): string {
   return "localhost";
 }
 
-const server = "http://localhost:4317";
+const server = process.env.HIVE_API ?? "http://localhost:4317";
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
