@@ -57,7 +57,7 @@ export interface Recorded {
   args: unknown;
 }
 
-type Handler = <T extends ToolName>(tool: T, args: ToolArgs[T], n: number) => Partial<ToolResponse<ToolResults[T]>> | undefined;
+type Handler = <T extends ToolName>(tool: T, args: ToolArgs[T], n: number) => Partial<ToolResponse<unknown>> | undefined;
 
 export class FakeHive implements HiveClient {
   calls: Recorded[] = [];
@@ -80,7 +80,7 @@ export class FakeHive implements HiveClient {
       control: this.control,
       rev: this.rev,
     };
-    return { ...base, ...extra };
+    return { ...base, ...extra } as ToolResponse<ToolResults[T]>;
   }
 
   toolNames(): ToolName[] {

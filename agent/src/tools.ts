@@ -61,7 +61,7 @@ export const TOOL_SCHEMAS: OpenAI.Chat.ChatCompletionTool[] = [
       what: str("What you are doing, 5..200 chars"),
       input: str("Inputs/params of the symbol after the change"),
       output: str("Promised output/behavior after the change: what it returns, units, edge cases. 10..300 chars"),
-      check: str("Optional: one or two vitest expect(...) lines that prove the output"),
+      check: str("Optional vitest check proving the output. It runs in an isolated test file where only the exports of the target file are in scope (imported for you): define any input data inline, e.g. const items = [{ sku: \"a\", priceCents: 1500, qty: 1 }]; expect(calculateTotal(items)).toBe(1609). 1-3 lines, no imports, no describe/it wrappers."),
     },
     TOOL_REQUIRED.declare_intent,
   ),

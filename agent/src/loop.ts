@@ -1,5 +1,5 @@
 import type OpenAI from "openai";
-import type { AgentId, Briefing, HiveMode, HumanId, Rev, ToolArgs, ToolName, ToolResponse } from "@hive/shared";
+import type { AgentId, Briefing, HiveMode, HumanId, Rev, TestResult, ToolArgs, ToolName, ToolResponse } from "@hive/shared";
 import type { HiveClient } from "./client.js";
 import { systemPrompt } from "./prompt.js";
 import { TOOL_NAMES, TOOL_SCHEMAS, isToolName } from "./tools.js";
@@ -127,6 +127,31 @@ export async function runAgent(opts: RunOptions): Promise<RunResult> {
   let lastRev: Rev = 0;
   // Briefings collected outside a tool message (pause polls, interrupt pick-up) go to the model as a user message.
   let pending: Briefing[] = [];
+  // For the one-time nudge: last run_tests result seen, and required briefings not yet acked.
+  let lastTests: TestResult | undefined;
+  const unacked = new Map<string, Briefing>();
+  let nudged = false;
+
+  function noteResponse(tool: ToolName, args: unknown, r: ToolResponse): void {
+    for (const b of r.briefings) if (b.requiresAck && !b.ack) unacked.set(b.id, b);
+    if (!r.ok) return;
+    if (tool === "run_tests" && r.data && typeof r.data === "object" && "ok" in r.data) lastTests = r.data as TestResult;
+    if (tool === "ack_briefing") unacked.delete(String((args as { briefingId?: unknown }).briefingId));
+  }
+
+  // Called when the model answers without tool calls. Returns the nudge text, or null to accept the answer.
+  function nudgeFor(): string | null {
+    if (nudged) return null;
+    const reasons: string[] = [];
+    if (lastTests && !lastTests.ok) {
+      const names = lastTests.failures.map((f) => f.name).slice(0, 8).join(", ");
+      reasons.push(`tests are still red (${lastTests.failed} failed${names ? `: ${names}` : ""})`);
+    }
+    if (unacked.size) reasons.push(`briefings unacked (${[...unacked.keys()].join(", ")})`);
+    if (!reasons.length) return null;
+    nudged = true;
+    return `Hive: ${reasons.join(" / ")}. Fix the cause, ask the other agent via ask_agent, or explain in your final message why it is outside your task.`;
+  }
 
   const elapsed = () => Date.now() - start;
   const emit = (e: AgentEvent) => onEvent?.({ agentId: opts.agentId, ...e });
@@ -140,6 +165,7 @@ export async function runAgent(opts: RunOptions): Promise<RunResult> {
     try {
       const r = await client.call("list_files", {});
       lastRev = r.rev;
+      noteResponse("list_files", {}, r);
       if (r.briefings.length) pending.push(...r.briefings);
       return r;
     } catch (e) {
@@ -173,6 +199,7 @@ export async function runAgent(opts: RunOptions): Promise<RunResult> {
     try {
       response = await client.call(name, args as ToolArgs[ToolName]);
       lastRev = response.rev;
+      noteResponse(name, args, response);
     } catch (e) {
       response = errorEnvelope("INTERNAL", `tool call failed: ${errMessage(e)}`, lastRev);
     }
@@ -259,7 +286,13 @@ export async function runAgent(opts: RunOptions): Promise<RunResult> {
     if (calls.length) assistant.tool_calls = calls;
     messages.push(assistant);
 
-    if (calls.length === 0) return finish("done", { finalMessage: msg.content ?? "" });
+    if (calls.length === 0) {
+      const nudge = nudgeFor();
+      if (!nudge) return finish("done", { finalMessage: msg.content ?? "" });
+      emit({ type: "status", status: "thinking", step, nudge });
+      messages.push({ role: "user", content: nudge });
+      continue;
+    }
 
     let control: ToolResponse["control"] = "run";
     for (const call of calls) {
