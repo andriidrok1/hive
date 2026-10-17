@@ -89,6 +89,8 @@ describe("systemPrompt", () => {
     expect(p).toContain("wait for Hive's approval briefing");
     expect(p).toContain("call finish_intent on that intent right away so they are unblocked");
     expect(p).toContain("Edit only the files named in your task and their test file.");
+    expect(p).toContain("read_file shows who is already working in a file and what they promised.");
+    expect(p).toContain("build on their promised output, do not duplicate or undo their work, and declare only what is left");
     expect(p).toContain("do not fix other agents' files yourself");
     expect(p.split(/\s+/).filter(Boolean).length).toBeLessThan(350);
   });
