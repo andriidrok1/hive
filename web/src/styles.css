@@ -117,7 +117,8 @@
   font-weight: 500;
   color: #e6e8ef !important;
   background: #1b1f2b !important;
-  border: 1px solid var(--border);
+  border: 1px solid;
+  border-color: inherit; /* the caret carries the user colour inline */
   border-radius: 999px;
   padding: 0 8px 0 18px !important;
   white-space: nowrap;
@@ -130,10 +131,11 @@
   position: absolute;
   left: 6px;
   top: 5px;
-  width: 8px;
-  height: 8px;
+  width: 0;
+  height: 0;
+  border: 4px solid;
+  border-color: inherit;
   border-radius: 50%;
-  background: var(--cursor-color, currentColor);
 }
 .cm-ySelectionInfo::after {
   content: " is editing…";

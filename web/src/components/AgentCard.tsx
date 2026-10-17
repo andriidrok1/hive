@@ -25,6 +25,8 @@ export interface AgentCardProps {
   files?: string[];
   testsRunning?: boolean;
   now?: number;
+  selected?: boolean; // target of the bottom chat box
+  onSelect?: () => void;
 }
 
 export interface StatusView {
@@ -66,7 +68,7 @@ export function elapsed(ms: number): string {
   return `${Math.floor(m / 60)}h ${m % 60}m`;
 }
 
-export function AgentCard({ agentId, humanId, status, control, task, intent, actions, viewer, meta, files = [], testsRunning = false, now }: AgentCardProps) {
+export function AgentCard({ agentId, humanId, status, control, task, intent, actions, viewer, meta, files = [], testsRunning = false, now, selected = false, onSelect }: AgentCardProps) {
   const [noteOpen, setNoteOpen] = useState<null | { urgent: boolean }>(null);
   const [menu, setMenu] = useState(false);
   const [note, setNote] = useState("");
@@ -92,7 +94,13 @@ export function AgentCard({ agentId, humanId, status, control, task, intent, act
   };
 
   return (
-    <Card className={cn("relative min-w-0 gap-2 px-3 py-3", view.busy && "border-l-2 border-l-[var(--c)]")} style={{ ["--c" as string]: color }} data-testid={`card-${agentId}`}>
+    <Card
+      className={cn("relative min-w-0 cursor-pointer gap-2 px-3 py-3", view.busy && "border-l-2 border-l-[var(--c)]", selected && "ring-1 ring-violet/60")}
+      style={{ ["--c" as string]: color }}
+      data-testid={`card-${agentId}`}
+      onClick={onSelect}
+      aria-selected={selected || undefined}
+    >
       <div className="flex min-w-0 items-start gap-3">
         <div className="hex flex size-11 shrink-0 items-center justify-center" style={{ background: `color-mix(in srgb, ${color} 22%, transparent)` }} aria-hidden>
           <div className="hex size-5" style={{ background: color }} />

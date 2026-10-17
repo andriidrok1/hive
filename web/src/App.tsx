@@ -4,6 +4,7 @@ import { connectLive, createStore, resyncAfterReset, startMock, useHive } from "
 import { hub } from "./editor/yjs";
 import { currentIntentOf, filesOfAgent, pendingBriefings, unresolvedConflicts } from "./state";
 import { ProjectActivity } from "./components/ProjectActivity";
+import { ChatBox } from "./components/ChatBox";
 import { isMock, lanUrl, loadHumanId, saveHumanId } from "./env";
 import { setMockSink } from "./api";
 import { MOCK_LAN_URL } from "./mock";
@@ -38,6 +39,13 @@ export function App({ mockStepMs }: { mockStepMs?: number } = {}) {
   const [showLlm, setShowLlm] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
   const path = defaultPath(state.files, selected);
+  // Agent the bottom chat box talks to: the one clicked in the list, else the first working one.
+  const [chatAgent, setChatAgent] = useState<string | null>(null);
+  const chatTarget =
+    (chatAgent && state.agents.some((a) => a.agentId === chatAgent) ? chatAgent : null) ??
+    state.agents.find((a) => a.status === "thinking" || a.status === "tool")?.agentId ??
+    state.agents[0]?.agentId ??
+    null;
   // Coarse clock for elapsed / "2m ago" labels.
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -86,12 +94,12 @@ export function App({ mockStepMs }: { mockStepMs?: number } = {}) {
     <TooltipProvider>
       <div className="grid h-full grid-cols-[56px_minmax(0,1fr)] bg-background">
         <Rail humanId={humanId} />
-        <div className="grid min-h-0 grid-rows-[56px_1fr]">
+        <div className="grid min-h-0 min-w-0 grid-rows-[56px_1fr]">
           <TopBar state={state} humanId={humanId} onHumanId={onHumanId} qrUrl={mock ? MOCK_LAN_URL : lanUrl("/m")} />
-          <div className="grid min-h-0 grid-cols-[240px_minmax(0,1fr)_400px]">
+          <div className="grid min-h-0 min-w-0 grid-cols-[240px_minmax(0,1fr)_400px]">
             <ProjectPanel files={state.files} intents={state.intents} selected={path} onSelect={setSelected} />
             <EditorPane state={state} mock={mock} humanId={humanId} path={path} onSelect={setSelected} />
-            <section className="grid min-h-0 grid-rows-[minmax(0,1fr)] border-l border-border bg-panel">
+            <section className="grid min-h-0 min-w-0 grid-rows-[minmax(0,1fr)] overflow-hidden border-l border-border bg-panel">
               <Tabs value={main} onValueChange={(v) => setMain(v === "activity" ? "activity" : "agents")} className="min-h-0">
                 <TabsList className="h-11 px-3">
                   <TabsTrigger value="agents" className="h-11" onClick={() => setMain("agents")}>
@@ -108,7 +116,7 @@ export function App({ mockStepMs }: { mockStepMs?: number } = {}) {
                   </Button>
                 </TabsList>
 
-                <TabsContent value="agents" className="min-h-0">
+                <TabsContent value="agents" className="grid min-h-0 grid-rows-[minmax(0,1fr)_auto]">
                   <ScrollArea className="h-full">
                     <div className="flex flex-col gap-2 p-3" aria-label="agents">
                       {state.agents.length === 0 && <div className="px-1 py-3 text-xs text-muted-foreground">No agents yet. Start one with New agent, or open ?mock=1 for the scripted demo.</div>}
@@ -127,6 +135,8 @@ export function App({ mockStepMs }: { mockStepMs?: number } = {}) {
                           files={filesOfAgent(state, a.agentId)}
                           testsRunning={Boolean(state.tests.running)}
                           now={now}
+                          selected={a.agentId === chatTarget}
+                          onSelect={() => setChatAgent(a.agentId)}
                         />
                       ))}
                       <ProjectActivity
@@ -139,6 +149,7 @@ export function App({ mockStepMs }: { mockStepMs?: number } = {}) {
                       />
                     </div>
                   </ScrollArea>
+                  <ChatBox agents={state.agents} target={chatTarget} onTarget={setChatAgent} humanId={humanId} />
                 </TabsContent>
 
                 <TabsContent value="activity" className="min-h-0">
