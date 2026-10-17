@@ -115,12 +115,12 @@ describe("websockets", () => {
     const files = doc.getMap<Y.Text>("files");
     await waitFor(() => files.get("src/format.ts") !== undefined);
 
-    type Presence = { user?: { name: string; color: string; kind: string }; cursor?: { anchor: unknown; head: unknown } };
-    const agentState = () => [...p.awareness.getStates().values()].find((s) => (s as Presence).user?.name === "agent-andrii") as Presence | undefined;
+    type Presence = { user?: { name: string; color: string; kind: string; agentId?: string }; cursor?: { anchor: unknown; head: unknown } };
+    const agentState = () => [...p.awareness.getStates().values()].find((s) => (s as Presence).user?.agentId === "agent-andrii") as Presence | undefined;
 
     await t.tool("agent-andrii", "read_file", { path: "src/tax.ts", startLine: 3, endLine: 4 });
     await waitFor(() => agentState() !== undefined);
-    expect(agentState()?.user).toEqual({ name: "agent-andrii", color: "#7c5cff", kind: "agent" });
+    expect(agentState()?.user).toEqual({ name: "andrii", color: "#7c5cff", kind: "agent", agentId: "agent-andrii" });
     const readPos = Y.createAbsolutePositionFromRelativePosition(Y.createRelativePositionFromJSON(agentState()!.cursor!.head), doc);
     expect(readPos?.type).toBe(files.get("src/tax.ts"));
     expect(readPos?.index).toBe((files.get("src/tax.ts")?.toString().split("\n").slice(0, 2).join("\n").length ?? 0) + 1);

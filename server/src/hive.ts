@@ -149,7 +149,7 @@ export function createHive(opts: CreateHiveOptions): Hive {
       const rec = ctx.agents.get(agentId);
       const cursor = hub.cursorAt(path, index);
       if (!rec || !cursor) return;
-      hub.setAgentPresence(agentId, { user: { name: agentId, color: rec.color ?? "#7c5cff", kind: "agent" }, cursor });
+      hub.setAgentPresence(agentId, { user: { name: rec.humanId, color: rec.color ?? "#7c5cff", kind: "agent", agentId }, cursor });
     },
     clear(agentId) {
       hub.setAgentPresence(agentId, null);

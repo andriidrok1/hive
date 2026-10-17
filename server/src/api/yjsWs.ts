@@ -20,7 +20,7 @@ export interface AwarenessUser {
 
 /** Awareness state in the shape y-codemirror.next renders: a named colored caret. */
 export interface AgentPresenceState {
-  user: { name: string; color: string; kind: "agent" };
+  user: { name: string; color: string; kind: "agent"; agentId: string }; // name = the human behind the agent
   cursor: { anchor: unknown; head: unknown };
 }
 
