@@ -4,6 +4,7 @@ import { intentsForFile, type UiState } from "../state";
 import { fetchFile } from "../api";
 import { mockFileContent } from "../mock";
 import { MockEditor } from "./MockEditor";
+import { PresenceStrip } from "./PresenceStrip";
 import { cn } from "../lib/utils";
 
 const LiveEditor = lazy(() => import("./LiveEditor"));
@@ -23,7 +24,7 @@ export function EditorPane({ state, mock, humanId }: Props) {
   const intents = path ? intentsForFile(state, path) : [];
 
   return (
-    <section className="grid min-h-0 grid-rows-[36px_1fr] border-r border-border">
+    <section className="grid min-h-0 grid-rows-[36px_auto_1fr] border-r border-border">
       <nav className="flex items-stretch gap-0.5 overflow-x-auto border-b border-border px-2" aria-label="files">
         {files.map((f) => (
           <button
@@ -40,6 +41,8 @@ export function EditorPane({ state, mock, humanId }: Props) {
         ))}
         {files.length === 0 && <span className="px-3 font-mono text-xs text-muted-foreground">no files yet</span>}
       </nav>
+      {/* Who is in this file: live from intent_declared / intent_status through state.intents. */}
+      <PresenceStrip intents={state.intents} openPath={path} />
       <div className="editor relative min-h-0 overflow-auto bg-background">
         {path === null ? (
           <div className="px-4 py-6 text-xs text-muted-foreground">Waiting for the project.</div>
