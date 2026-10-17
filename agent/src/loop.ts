@@ -55,8 +55,9 @@ function rejectsReasoningEffort(e: unknown): boolean {
   const message = String((e as { message?: unknown }).message ?? "");
   return status === 400 && /reasoning_effort/i.test(message);
 }
-export const DEFAULTS = { maxToolCalls: 40, maxMs: 15 * 60_000, maxTokens: 400_000, pauseMs: 2000, conflictWaitMs: 90_000, conflictPollMs: 3_000 } as const;
-// Red-tests nudges repeat up to MAX_RED_NUDGES while at least NUDGE_MIN_TOOL_CALLS calls and NUDGE_MIN_MS remain.
+export const DEFAULTS = { maxToolCalls: 40, maxMs: 15 * 60_000, maxTokens: 300_000, pauseMs: 2000, conflictWaitMs: 90_000, conflictPollMs: 3_000 } as const;
+// Red-tests nudges repeat up to MAX_RED_NUDGES while at least NUDGE_MIN_TOOL_CALLS calls and NUDGE_MIN_MS remain,
+// and stop early once two consecutive nudges produced no edit_region/create_file call (the agent is spinning).
 export const MAX_RED_NUDGES = 3;
 export const NUDGE_MIN_TOOL_CALLS = 8;
 export const NUDGE_MIN_MS = 60_000;
@@ -146,6 +147,9 @@ export async function runAgent(opts: RunOptions): Promise<RunResult> {
   const seenBriefings = new Map<string, Briefing>();
   const myIntents = new Set<IntentId>();
   let nudges = 0;
+  let edits = 0; // successful edit_region/create_file calls
+  let editsAtLastNudge = 0;
+  let idleNudges = 0; // consecutive nudges after which no edit followed
   // Intents this agent declared that came back "conflict", keyed by id, with their target so a
   // later approved re-declare of the same target clears them. Cleared by the server's intent_conflict
   // "now approved" briefing (requiresAck=false) as well.
@@ -166,6 +170,7 @@ export async function runAgent(opts: RunOptions): Promise<RunResult> {
     if (!r.ok) return;
     if (tool === "run_tests" && r.data && typeof r.data === "object" && "ok" in r.data) lastTests = r.data as TestResult;
     if (tool === "ack_briefing") unacked.delete(String((args as { briefingId?: unknown }).briefingId));
+    if (tool === "edit_region" || tool === "create_file") edits += 1;
     if (tool === "declare_intent" && r.data && typeof r.data === "object" && "intent" in r.data) {
       const d = r.data as DeclareIntentResult;
       if (d.intent?.id) myIntents.add(d.intent.id);
@@ -216,15 +221,18 @@ export async function runAgent(opts: RunOptions): Promise<RunResult> {
   function nudgeFor(): string | null {
     const red = !!lastTests && !lastTests.ok;
     const budgetOk = maxToolCalls - toolCalls >= NUDGE_MIN_TOOL_CALLS && maxMs - elapsed() >= NUDGE_MIN_MS;
+    if (nudges > 0) idleNudges = edits > editsAtLastNudge ? 0 : idleNudges + 1;
+    const spinning = idleNudges >= 2;
     const reasons: string[] = [];
-    if (red && budgetOk && nudges < MAX_RED_NUDGES && lastTests) {
+    if (red && budgetOk && !spinning && nudges < MAX_RED_NUDGES && lastTests) {
       const names = lastTests.failures.map((f) => f.name).slice(0, 8).join(", ");
       reasons.push(`tests are still red (${lastTests.failed} failed${names ? `: ${names}` : ""})`);
     }
     if (unacked.size && (reasons.length || nudges === 0)) reasons.push(`briefings unacked (${[...unacked.keys()].join(", ")})`);
     if (!reasons.length) return null;
     nudges += 1;
-    const advice = red && budgetOk
+    editsAtLastNudge = edits;
+    const advice = red && budgetOk && !spinning
       ? "You may still edit; if the failing tests belong to another agent's area, ask them and wait, otherwise fix now."
       : "Call ack_briefing for each, then continue or finish.";
     return `Hive: ${reasons.join(" / ")}. ${advice}`;
