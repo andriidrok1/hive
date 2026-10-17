@@ -4,8 +4,8 @@
   "conflict": true,
   "agents": [
     {
-      "agentId": "agent-andrii",
-      "humanId": "andrii",
+      "agentId": "agent-oleg",
+      "humanId": "oleg",
       "task": "Change fixed promos so that Promo.value for kind \"fixed\" is whole dollars instead of cents: applyDiscount in src/discount.ts must multiply it by 100. Update the comment on Promo in src/types.ts and every existing test that uses a fixed promo. You own src/discount.ts, src/types.ts and the existing tests.",
       "owns": [
         "src/discount.ts",
@@ -25,11 +25,11 @@
     }
   ],
   "startDelaysMs": {
-    "agent-andrii": 0,
+    "agent-oleg": 0,
     "agent-masha": 3000
   },
   "expectedCulprits": [
-    "agent-andrii",
+    "agent-oleg",
     "agent-masha"
   ],
   "acceptance": "npm test",

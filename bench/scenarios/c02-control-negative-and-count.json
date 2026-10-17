@@ -4,8 +4,8 @@
   "conflict": false,
   "agents": [
     {
-      "agentId": "agent-andrii",
-      "humanId": "andrii",
+      "agentId": "agent-oleg",
+      "humanId": "oleg",
       "task": "Make formatPrice in src/format.ts handle negative amounts: formatPrice(-1234) must return \"-$12.34\" (positive values unchanged). Add a test. You own src/format.ts and test/format.test.ts.",
       "owns": [
         "src/format.ts",
@@ -23,7 +23,7 @@
     }
   ],
   "startDelaysMs": {
-    "agent-andrii": 0,
+    "agent-oleg": 0,
     "agent-masha": 3000
   },
   "expectedCulprits": [],

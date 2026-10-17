@@ -4,8 +4,8 @@
   "conflict": true,
   "agents": [
     {
-      "agentId": "agent-andrii",
-      "humanId": "andrii",
+      "agentId": "agent-oleg",
+      "humanId": "oleg",
       "task": "Make subtotal in src/checkout.ts ignore lines whose qty is 0 or negative (they count as removed from the cart). Add tests in test/checkout.test.ts. You own src/checkout.ts and test/checkout.test.ts.",
       "owns": [
         "src/checkout.ts",
@@ -23,11 +23,11 @@
     }
   ],
   "startDelaysMs": {
-    "agent-andrii": 0,
+    "agent-oleg": 0,
     "agent-masha": 3000
   },
   "expectedCulprits": [
-    "agent-andrii",
+    "agent-oleg",
     "agent-masha"
   ],
   "acceptance": "npm test",
