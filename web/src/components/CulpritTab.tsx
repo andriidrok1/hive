@@ -13,11 +13,13 @@ interface Props {
 
 export function CulpritTab({ grid, tests, lastReport }: Props) {
   const running = Boolean(grid && !grid.report);
+  // A later green full-suite run means the culprit was dealt with: keep the card as history, but say so.
+  const resolved = Boolean(lastReport && tests.lastFull?.result.ok && tests.lastFull.at > lastReport.at);
   return (
     <ScrollArea className="h-full">
       <div className="flex flex-col gap-3 p-3">
         <TestLine tests={tests} />
-        {lastReport && <ReportBanner report={lastReport.report} searchId={lastReport.searchId} stale={running} />}
+        {lastReport && <ReportBanner report={lastReport.report} searchId={lastReport.searchId} stale={running} resolved={resolved} greenRev={tests.lastFull?.rev} />}
         {!grid ? (
           <div className="px-1 py-3 text-xs text-muted-foreground">No culprit search yet. When tests go red after an intent finishes, Hive runs the suite with and without each change set in parallel.</div>
         ) : (
@@ -48,10 +50,11 @@ export function CulpritTab({ grid, tests, lastReport }: Props) {
   );
 }
 
-function ReportBanner({ report, searchId, stale }: { report: CulpritReport; searchId: string; stale: boolean }) {
+function ReportBanner({ report, searchId, stale, resolved, greenRev }: { report: CulpritReport; searchId: string; stale: boolean; resolved?: boolean; greenRev?: number }) {
   return (
-    <div className={cn("rounded-md border px-3 py-2.5 text-sm leading-snug", report.kind === "unknown" ? "border-border" : "border-red-500/60 bg-red-500/5", stale && "opacity-70")} role="status">
-      <span className="font-medium text-red-300">
+    <div className={cn("rounded-md border px-3 py-2.5 text-sm leading-snug", resolved ? "border-emerald-500/40 bg-emerald-500/5" : report.kind === "unknown" ? "border-border" : "border-red-500/60 bg-red-500/5", (stale || resolved) && "opacity-80")} role="status">
+      {resolved && <span className="font-medium text-emerald-300">Resolved · tests green @{greenRev} · </span>}
+      <span className={cn("font-medium", resolved ? "text-muted-foreground line-through" : "text-red-300")}>
         {report.kind === "pair" ? "Pair conflict" : report.kind === "single" ? "Single culprit" : report.kind === "dependent" ? "Dependent pair" : "No single culprit"}
       </span>
       <span className="text-foreground"> · {describeReport(report)}</span>
