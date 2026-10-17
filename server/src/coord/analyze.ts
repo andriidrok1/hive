@@ -103,6 +103,38 @@ export function normalizeCode(path: string, content: string): string {
   return printer.printFile(sf).replace(/\s+/g, " ").trim();
 }
 
+export interface SymbolSource {
+  kind: SymbolInfo["kind"];
+  /** Header up to the first `{` (or the whole declaration if it has none), comments stripped, whitespace collapsed. */
+  sig: string;
+  /** From the first `{` on, comments stripped, whitespace collapsed. */
+  body: string;
+}
+
+/** Comment-free, whitespace-collapsed source of each top-level symbol, split into signature and body. */
+export function symbolSources(path: string, content: string): Map<string, SymbolSource> {
+  const sf = parseSource(path, content);
+  const printer = ts.createPrinter({ removeComments: true });
+  const out = new Map<string, SymbolSource>();
+  const put = (name: string, kind: SymbolInfo["kind"], node: ts.Node) => {
+    const text = printer.printNode(ts.EmitHint.Unspecified, node, sf).replace(/\s+/g, " ").trim();
+    // for `const f = (...) => {...}` this makes the signature everything before the arrow body
+    const brace = text.indexOf("{");
+    const split = brace === -1 ? text.length : brace;
+    out.set(name, { kind, sig: text.slice(0, split).trim(), body: text.slice(split).trim() });
+  };
+  for (const stmt of sf.statements) {
+    if (ts.isFunctionDeclaration(stmt) && stmt.name) put(stmt.name.text, "function", stmt);
+    else if (ts.isClassDeclaration(stmt) && stmt.name) put(stmt.name.text, "class", stmt);
+    else if (ts.isTypeAliasDeclaration(stmt)) put(stmt.name.text, "type", stmt);
+    else if (ts.isInterfaceDeclaration(stmt)) put(stmt.name.text, "interface", stmt);
+    else if (ts.isVariableStatement(stmt)) {
+      for (const decl of stmt.declarationList.declarations) if (ts.isIdentifier(decl.name)) put(decl.name.text, "const", decl);
+    }
+  }
+  return out;
+}
+
 /** Symbols whose line range overlaps [startLine, endLine] (1-based, inclusive). */
 export function symbolsInRange(symbols: SymbolInfo[], startLine: number, endLine: number): SymbolInfo[] {
   return symbols.filter((s) => s.startLine <= endLine && s.endLine >= startLine);

@@ -1,5 +1,8 @@
-export { analyzeFile, normalizeCode, symbolText, symbolsInRange, parseSource } from "./analyze.js";
-export type { FileAnalysis } from "./analyze.js";
+export { analyzeFile, normalizeCode, symbolText, symbolSources, symbolsInRange, parseSource } from "./analyze.js";
+export type { FileAnalysis, SymbolSource } from "./analyze.js";
+export { ChangeWatcher, diffSymbols } from "./ChangeWatcher.js";
+export type { ChangeWatcherDeps, SymbolChange } from "./ChangeWatcher.js";
+export { Mailbox, MAX_EXCHANGES } from "./Mailbox.js";
 export { CallGraph } from "./CallGraph.js";
 export { BriefingQueue, clip } from "./BriefingQueue.js";
 export { IntentRegistry, validateIntentInput, isVagueOutput } from "./IntentRegistry.js";
