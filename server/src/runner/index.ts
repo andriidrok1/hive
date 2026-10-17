@@ -12,7 +12,7 @@ export { FreestyleRunner, DEFAULT_PROJECT_DIR } from "./FreestyleRunner.js";
 export type { FreestyleRunnerOptions, VmTimings } from "./FreestyleRunner.js";
 export { CulpritFinder, MAX_SUSPECTS, MAX_PAIR_GROUPS, groupByAgent, shortName } from "./CulpritFinder.js";
 export type { SuspectGroup } from "./CulpritFinder.js";
-export { TestOrchestrator, CHECK_TEST_PATH, checkTestSource, exportedValueNames, classifyCheck } from "./TestOrchestrator.js";
+export { TestOrchestrator, CHECK_TEST_PATH, checkTestSource, exportedValueNames, classifyCheck, isTestFile } from "./TestOrchestrator.js";
 export type { CheckVerdict } from "./TestOrchestrator.js";
 export type { TestOrchestratorDeps, StoreLike, HistoryLike, IntentsLike, BriefingsLike, ReadsLike, GraphLike } from "./TestOrchestrator.js";
 export { prepareBaseSnapshot, readBaseSnapshotRecord, writeBaseSnapshotRecord, readProjectFiles, baseSnapshotPath, BASE_SNAPSHOT_FILE } from "./prepare.js";

@@ -126,7 +126,7 @@ export class TestOrchestrator {
       }
     }
 
-    if (mode === "hive" && intent?.check && intent.action !== "delete") {
+    if (mode === "hive" && intent?.check && intent.action !== "delete" && !isTestFile(intent.target.file)) {
       const checkRun = runId("check");
       onEvent({ type: "test_run_started", runId: checkRun, rev, reason: `check ${intentId} (${where})` });
       const checkResult = await this.safeRun(() =>
@@ -363,6 +363,11 @@ export function checkTestSource(intent: Intent, fileContent?: string): string {
     "",
   ];
   return lines.filter((l) => l !== "").join("\n");
+}
+
+/** Intents that target a test file have nothing to import from `../src/`: their check is skipped. */
+export function isTestFile(path: string): boolean {
+  return /(^|\/)test\//.test(path) || /\.(test|spec)\.[cm]?[jt]sx?$/.test(path);
 }
 
 export type CheckVerdict = "ok" | "failed" | "invalid";
