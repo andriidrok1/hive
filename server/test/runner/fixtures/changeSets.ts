@@ -172,3 +172,12 @@ export function dependentPair(base = DEMO_APP_FILES): { d1: ChangeSet; d2: Chang
   ]);
   return { d1: first.changeSet, d2: second.changeSet };
 }
+
+/** Split one change set into two intents of the same agent: A1 = edits under src/, A2 = edits under test/. */
+export function splitCodeAndTests(cs: ChangeSet, ids: [IntentId, IntentId] = ["A1", "A2"]): { code: ChangeSet; tests: ChangeSet } {
+  const codeEdits = cs.edits.filter((e) => e.path.startsWith("src/"));
+  const testEdits = cs.edits.filter((e) => e.path.startsWith("test/"));
+  const code: ChangeSet = { ...cs, id: ids[0], what: `${cs.what} (code)`, files: [...new Set(codeEdits.map((e) => e.path))], edits: codeEdits, endRev: cs.endRev };
+  const tests: ChangeSet = { ...cs, id: ids[1], what: `${cs.what} (tests)`, files: [...new Set(testEdits.map((e) => e.path))], edits: testEdits, endRev: cs.endRev + 1 };
+  return { code, tests };
+}

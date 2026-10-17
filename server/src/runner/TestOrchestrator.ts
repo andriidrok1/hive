@@ -59,6 +59,8 @@ export interface TestOrchestratorDeps {
   quietMs?: number;
   /** Max wait for quiet (ms). Default 5000. */
   maxQuietWaitMs?: number;
+  /** Skip a new culprit search when one ran within this window and the failing tests are unchanged (ms). Default 20000. */
+  culpritCooldownMs?: number;
 }
 
 export const CHECK_TEST_PATH = "test/__hive_check__.test.ts";
@@ -72,6 +74,7 @@ export class TestOrchestrator {
   private readonly deps: TestOrchestratorDeps;
   private readonly initial: Snapshot;
   private queue: Promise<void> = Promise.resolve();
+  private lastSearch: { at: number; failingKey: string } | undefined;
 
   constructor(deps: TestOrchestratorDeps) {
     this.deps = deps;
@@ -147,16 +150,38 @@ export class TestOrchestrator {
       return;
     }
 
+    // Cooldown: the same failure within 20s does not deserve another search (agents finish intents in bursts).
+    const failingKey = [...new Set(result.failures.map((f) => f.name))].sort().join("\n");
+    const cooldown = this.deps.culpritCooldownMs ?? 20_000;
+    if (this.lastSearch && Date.now() - this.lastSearch.at < cooldown && this.lastSearch.failingKey === failingKey) return;
+
     const searchId = runId("culprit");
     onEvent({ type: "culprit_search_started", searchId, suspects: suspects.map((s) => s.id) });
     const report = await this.deps.culprit.find(green, suspects, (variant) => onEvent({ type: "culprit_variant_result", searchId, variant }));
     onEvent({ type: "culprit_found", searchId, report });
+    this.lastSearch = { at: Date.now(), failingKey };
     this.applyReport(report, suspects, result, intentId, rev);
   }
 
   private applyReport(report: CulpritReport, suspects: ChangeSet[], result: TestResult, finishedId: IntentId, rev: Rev): void {
     const { intents } = this.deps;
     const byId = new Map(suspects.map((s) => [s.id, s]));
+    const failingNames = [...new Set(result.failures.map((f) => f.name))];
+    if (report.kind === "unknown") {
+      // Cause unclear: judge nobody. One non-blocking note per suspect owner.
+      const perOwner = new Map<AgentId, IntentId[]>();
+      for (const s of suspects) perOwner.set(s.agentId, [...(perOwner.get(s.agentId) ?? []), s.id]);
+      for (const [owner, ids] of perOwner) {
+        this.deps.briefings.push({
+          toAgent: owner,
+          kind: "verification_failed",
+          summary: clip(`Tests are red after your intents ${ids.join(", ")}, cause unclear; failing: ${failingNames.slice(0, 5).join(", ")}`),
+          details: { intentId: ids[ids.length - 1], failingTests: result.failures.slice(0, 10) },
+          requiresAck: false,
+        });
+      }
+      return;
+    }
     const culpritIds = report.culprits.length > 0 ? report.culprits : [finishedId];
     for (const id of culpritIds) {
       const st = intents.get(id)?.status;
@@ -200,14 +225,14 @@ export class TestOrchestrator {
       }
       return;
     }
-    // dependent / unknown: every suspect's owner
+    // dependent: every suspect's owner
     const owners = new Map<AgentId, IntentId[]>();
     for (const id of culpritIds) {
       const owner = ownerOf(id);
       if (!owner) continue;
       owners.set(owner, [...(owners.get(owner) ?? []), id]);
     }
-    const why = report.kind === "dependent" ? "a change set only applies on top of another, so they could not be isolated" : "no single change set or pair explains the failure";
+    const why = "a change set only applies on top of another, so they could not be isolated";
     for (const [owner, ids] of owners) {
       this.push(
         owner,

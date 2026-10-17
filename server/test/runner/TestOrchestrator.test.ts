@@ -96,13 +96,13 @@ function intentOf(cs: ChangeSet, extra: Partial<Intent> = {}): Intent {
 }
 
 /** Runner whose verdict depends on the files, so the culprit finder gets meaningful variants. */
-function predicateRunner(isGreen: (files: Record<string, string>) => boolean, failureMessage = "AssertionError: expected 9000 to be 9653") {
+function predicateRunner(isGreen: (files: Record<string, string>) => boolean, failureMessage = "AssertionError: expected 9000 to be 9653", failure = { name: "calculateTotal > applies a percent promo" }) {
   const calls: { files: Record<string, string>; filter?: string }[] = [];
   const runner: Runner = {
     async runTests(files, opts) {
       calls.push({ files, filter: opts?.filter });
       const ok = isGreen(files);
-      const r: TestResult = { ok, passed: ok ? 5 : 4, failed: ok ? 0 : 1, failures: ok ? [] : [{ name: "calculateTotal > applies a percent promo", message: failureMessage }], durationMs: 3 };
+      const r: TestResult = { ok, passed: ok ? 5 : 4, failed: ok ? 0 : 1, failures: ok ? [] : [{ name: failure.name, message: failureMessage }], durationMs: 3 };
       return r;
     },
     async runCommand() {
@@ -121,6 +121,8 @@ function setup(opts: {
   callers?: { file: string; line: number; caller: string | null; callee: string }[];
   mode?: "hive" | "naive" | "isolated";
   failureMessage?: string;
+  failure?: { name: string };
+  culpritCooldownMs?: number;
 }) {
   const store = fakeStore(opts.files, 10);
   const green: Snapshot = { rev: 0, files: { ...DEMO_APP_FILES }, green: true, at: 0 };
@@ -128,7 +130,7 @@ function setup(opts: {
   const intents = fakeIntents(opts.intents);
   const briefings = fakeBriefings();
   const events: FeedEventBody[] = [];
-  const { runner, calls } = predicateRunner(opts.isGreen, opts.failureMessage);
+  const { runner, calls } = predicateRunner(opts.isGreen, opts.failureMessage, opts.failure);
   const deps: TestOrchestratorDeps = {
     store,
     history,
@@ -142,6 +144,7 @@ function setup(opts: {
     mode: opts.mode ?? "hive",
     quietMs: 20,
     maxQuietWaitMs: 200,
+    culpritCooldownMs: opts.culpritCooldownMs,
   };
   return { deps, store, history, intents, briefings, events, calls, orchestrator: new TestOrchestrator(deps) };
 }
@@ -229,14 +232,55 @@ describe("TestOrchestrator", () => {
     expect(t.intents.statuses.every((s) => s.status === "failed")).toBe(true);
   });
 
-  it("8d. red path, unknown: every suspect's owner is briefed once", async () => {
+  it("8d. red path, unknown: nobody is failed, each suspect owner gets one non-blocking note", async () => {
     const s1 = harmlessFormatChange();
-    const s2 = breakDiscount();
-    const t = setup({ files: DEMO_APP_FILES, changeSets: [s1, s2], intents: [intentOf(s1), intentOf(s2)], isGreen: () => false });
+    const s1b = { ...harmlessFormatChange(), id: "A1b", edits: [], endRev: 2 };
+    const s2 = { ...breakDiscount(), endRev: 3 };
+    const t = setup({ files: DEMO_APP_FILES, changeSets: [s1, s1b, s2], intents: [intentOf(s1), intentOf(s1b), intentOf(s2)], isGreen: () => false });
     await t.orchestrator.onIntentFinished("B1");
     const found = t.events.find((e) => e.type === "culprit_found") as Extract<FeedEventBody, { type: "culprit_found" }>;
     expect(found.report.kind).toBe("unknown");
+    expect(t.intents.statuses).toEqual([]);
     expect(t.briefings.all.map((b) => b.toAgent).sort()).toEqual(["agent-andrii", "agent-masha"]);
+    for (const b of t.briefings.all) {
+      expect(b.kind).toBe("verification_failed");
+      expect(b.requiresAck).toBe(false);
+    }
+    const andrii = t.briefings.all.find((b) => b.toAgent === "agent-andrii")!;
+    expect(andrii.summary).toBe("Tests are red after your intents A1, A1b, cause unclear; failing: calculateTotal > applies a percent promo");
+  });
+
+  it("8e. cooldown: a second red run within 20s with the same failing tests skips the culprit search; a new failure set runs it", async () => {
+    const s1 = harmlessFormatChange();
+    const s2 = breakDiscount();
+    const failure = { name: "calculateTotal > applies a percent promo" };
+    const t = setup({
+      files: applyAll(DEMO_APP_FILES, [s1, s2]),
+      changeSets: [s1, s2],
+      intents: [intentOf(s1), intentOf(s2)],
+      isGreen: (files) => !files["src/discount.ts"]!.includes("Math.floor"),
+      failure,
+    });
+    await t.orchestrator.onIntentFinished("B1");
+    expect(t.events.filter((e) => e.type === "culprit_search_started").length).toBe(1);
+    const runsAfterFirst = t.events.filter((e) => e.type === "test_run_finished").length;
+
+    await t.orchestrator.onIntentFinished("A1");
+    expect(t.events.filter((e) => e.type === "test_run_finished").length).toBe(runsAfterFirst + 1);
+    expect(t.events.filter((e) => e.type === "culprit_search_started").length).toBe(1);
+
+    failure.name = "orderSummary > renders three lines";
+    await t.orchestrator.onIntentFinished("A1");
+    expect(t.events.filter((e) => e.type === "culprit_search_started").length).toBe(2);
+  });
+
+  it("8f. cooldown expires: the same failure after the window is searched again", async () => {
+    const s2 = breakDiscount();
+    const t = setup({ files: applyAll(DEMO_APP_FILES, [s2]), changeSets: [s2], intents: [intentOf(s2)], isGreen: () => false, culpritCooldownMs: 30 });
+    await t.orchestrator.onIntentFinished("B1");
+    await new Promise((r) => setTimeout(r, 40));
+    await t.orchestrator.onIntentFinished("B1");
+    expect(t.events.filter((e) => e.type === "culprit_search_started").length).toBe(2);
   });
 
   it("9. check failure -> intent failed, verification_failed to the owner and to dependents, no suite run", async () => {
