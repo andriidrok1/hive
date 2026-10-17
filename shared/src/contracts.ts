@@ -186,7 +186,12 @@ export interface ToolResults {
   create_file: { path: string; rev: Rev };
   finish_intent: { intent: Intent };
   run_command: CmdResult;
-  run_tests: TestResult;
+  // run_tests judges the caller on its own view: green snapshot + finished change sets + the caller's open edits,
+  // other agents' in-progress edits excluded. `view` and `note` describe that; POST /api/test uses the live store.
+  run_tests: TestResult & {
+    view?: { finishedSets: IntentId[]; ownOpenIntents: IntentId[]; excludedInProgress: { intentId: IntentId; agentId: AgentId; files: string[] }[] };
+    note?: string;
+  };
   ack_briefing: { briefingId: string };
   ask_agent: { messageId: string };
   reply: { messageId: string };
