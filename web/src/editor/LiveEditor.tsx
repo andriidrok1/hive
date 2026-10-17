@@ -28,11 +28,15 @@ class LabelWidget extends WidgetType {
   toDOM(): HTMLElement {
     const el = document.createElement("div");
     el.className = "intent-label";
-    el.style.color = this.color;
+    el.style.borderLeftColor = this.color;
+    el.style.setProperty("--c", this.color);
     const pill = document.createElement("span");
     pill.className = "pill";
     pill.textContent = this.id;
-    el.append(pill, document.createTextNode(this.text));
+    const what = document.createElement("span");
+    what.className = "what";
+    what.textContent = this.text;
+    el.append(pill, what);
     return el;
   }
   ignoreEvent(): boolean {
@@ -52,7 +56,8 @@ function buildDecorations(doc: EditorState["doc"], ranges: IntentRange[]): Decor
     for (let ln = start; ln <= end; ln++) {
       out.push({
         from: doc.line(ln).from,
-        deco: Decoration.line({ attributes: { style: `background: color-mix(in srgb, ${r.color} 12%, transparent); box-shadow: inset 3px 0 0 ${r.color}` } }),
+        // Thin bar in the agent colour only; no fill, so code stays readable.
+        deco: Decoration.line({ attributes: { style: `box-shadow: inset 2px 0 0 ${r.color}` } }),
       });
     }
   }

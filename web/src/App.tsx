@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { FileText, FlaskConical, GitBranch, Rss } from "lucide-react";
 import { connectLive, createStore, resyncAfterReset, startMock, useHive } from "./store";
 import { hub } from "./editor/yjs";
 import { currentIntentOf, pendingBriefings, unresolvedConflicts } from "./state";
@@ -13,8 +14,12 @@ import { CulpritTab } from "./components/CulpritTab";
 import { ContractsTab } from "./components/ContractsTab";
 import { StartAgentDialog } from "./components/StartAgentDialog";
 import { EditorPane } from "./editor/EditorPane";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "./components/ui/tabs";
+import { TooltipProvider } from "./components/ui/tooltip";
+import { Badge } from "./components/ui/badge";
 
 type Tab = "feed" | "history" | "culprit" | "contracts";
+const TABS: Tab[] = ["feed", "history", "culprit", "contracts"];
 
 export function App({ mockStepMs }: { mockStepMs?: number } = {}) {
   const mock = isMock();
@@ -62,64 +67,72 @@ export function App({ mockStepMs }: { mockStepMs?: number } = {}) {
   const pending = pendingBriefings(state).length;
 
   return (
-    <div className="app">
-      <TopBar state={state} humanId={humanId} onHumanId={onHumanId} onStartAgent={() => setDialog(true)} qrUrl={mock ? MOCK_LAN_URL : lanUrl("/m")} />
-      <div className="main">
-        <EditorPane state={state} mock={mock} humanId={humanId} />
-        <section className="right">
-          <div className="agents" aria-label="agents">
-            {state.agents.length === 0 && <div className="empty">No agents yet. Start one from the top bar, or open ?mock=1 for the scripted demo.</div>}
-            {state.agents.map((a) => (
-              <AgentCard
-                key={a.agentId}
-                agentId={a.agentId}
-                humanId={a.humanId}
-                status={a.status}
-                control={a.control}
-                task={a.task}
-                intent={currentIntentOf(state, a.agentId)}
-                actions={state.actions[a.agentId] ?? []}
-                viewer={humanId}
-              />
-            ))}
-          </div>
-          <div className="tabs">
-            <div className="tabbar" role="tablist">
-              <button role="tab" aria-selected={tab === "feed"} className={tab === "feed" ? "active" : ""} onClick={() => setTab("feed")}>
-                Feed
-                {pending > 0 && <span className="count alert">{pending} unacked</span>}
-              </button>
-              <button role="tab" aria-selected={tab === "history"} className={tab === "history" ? "active" : ""} onClick={() => setTab("history")}>
-                History<span className="count">{state.history.length}</span>
-              </button>
-              <button role="tab" aria-selected={tab === "culprit"} className={tab === "culprit" ? "active" : ""} onClick={() => setTab("culprit")}>
-                Culprit
-                {state.tests.running && <span className="count">running</span>}
-              </button>
-              <button role="tab" aria-selected={tab === "contracts"} className={tab === "contracts" ? "active" : ""} onClick={() => setTab("contracts")}>
-                Contracts
-                {conflicts > 0 ? <span className="count alert">{conflicts} conflict</span> : <span className="count">{state.intents.length}</span>}
-              </button>
+    <TooltipProvider>
+      <div className="grid h-full grid-rows-[48px_1fr]">
+        <TopBar state={state} humanId={humanId} onHumanId={onHumanId} onStartAgent={() => setDialog(true)} qrUrl={mock ? MOCK_LAN_URL : lanUrl("/m")} />
+        <div className="grid min-h-0 grid-cols-[60%_40%]">
+          <EditorPane state={state} mock={mock} humanId={humanId} />
+          <section className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)]">
+            <div className="grid max-h-[44vh] grid-cols-[repeat(auto-fit,minmax(240px,1fr))] gap-2 overflow-auto border-b border-border p-2" aria-label="agents">
+              {state.agents.length === 0 && <div className="px-2 py-3 text-xs text-muted-foreground">No agents yet. Start one from the top bar, or open ?mock=1 for the scripted demo.</div>}
+              {state.agents.map((a) => (
+                <AgentCard
+                  key={a.agentId}
+                  agentId={a.agentId}
+                  humanId={a.humanId}
+                  status={a.status}
+                  control={a.control}
+                  task={a.task}
+                  intent={currentIntentOf(state, a.agentId)}
+                  actions={state.actions[a.agentId] ?? []}
+                  viewer={humanId}
+                />
+              ))}
             </div>
-            <div className="tabbody">
-              {tab === "feed" && (
-                <>
-                  <div style={{ padding: "6px 12px 0", textAlign: "right" }}>
-                    <label className="dim" style={{ fontSize: 12 }}>
-                      <input type="checkbox" checked={showLlm} onChange={(e) => setShowLlm(e.target.checked)} /> show llm calls
-                    </label>
-                  </div>
-                  <Feed state={state} showLlm={showLlm} />
-                </>
-              )}
-              {tab === "history" && <HistoryTab history={state.history} />}
-              {tab === "culprit" && <CulpritTab grid={state.culprit} tests={state.tests} />}
-              {tab === "contracts" && <ContractsTab intents={state.intents} conflictsOf={state.conflictsOf} humanId={humanId} />}
-            </div>
-          </div>
-        </section>
+            {/* Controlled tabs; onClick on each trigger keeps plain click events (and fireEvent.click) working. */}
+            <Tabs value={tab} onValueChange={(v) => setTab(TABS.includes(v as Tab) ? (v as Tab) : "feed")} className="min-h-0">
+              <TabsList>
+                <TabsTrigger value="feed" onClick={() => setTab("feed")}>
+                  <Rss />
+                  Feed
+                  {pending > 0 && <Badge variant="warning">{pending} unacked</Badge>}
+                </TabsTrigger>
+                <TabsTrigger value="history" onClick={() => setTab("history")}>
+                  <GitBranch />
+                  History
+                  <span className="font-mono text-[11px] text-zinc-500">{state.history.length}</span>
+                </TabsTrigger>
+                <TabsTrigger value="culprit" onClick={() => setTab("culprit")}>
+                  <FlaskConical />
+                  Culprit
+                  {state.tests.running && <Badge variant="warning">running</Badge>}
+                </TabsTrigger>
+                <TabsTrigger value="contracts" onClick={() => setTab("contracts")}>
+                  <FileText />
+                  Contracts
+                  {conflicts > 0 ? <Badge variant="warning">{conflicts} conflict</Badge> : <span className="font-mono text-[11px] text-zinc-500">{state.intents.length}</span>}
+                </TabsTrigger>
+                <label className="ml-auto flex items-center gap-1.5 whitespace-nowrap pr-1 text-[11px] text-zinc-500">
+                  <input type="checkbox" className="size-3 accent-zinc-400" checked={showLlm} onChange={(e) => setShowLlm(e.target.checked)} /> llm calls
+                </label>
+              </TabsList>
+              <TabsContent value="feed" className="min-h-0">
+                <Feed state={state} showLlm={showLlm} />
+              </TabsContent>
+              <TabsContent value="history" className="min-h-0">
+                <HistoryTab history={state.history} />
+              </TabsContent>
+              <TabsContent value="culprit" className="min-h-0">
+                <CulpritTab grid={state.culprit} tests={state.tests} />
+              </TabsContent>
+              <TabsContent value="contracts" className="min-h-0">
+                <ContractsTab intents={state.intents} conflictsOf={state.conflictsOf} humanId={humanId} />
+              </TabsContent>
+            </Tabs>
+          </section>
+        </div>
+        {dialog && <StartAgentDialog humanId={humanId} onClose={() => setDialog(false)} />}
       </div>
-      {dialog && <StartAgentDialog humanId={humanId} onClose={() => setDialog(false)} />}
-    </div>
+    </TooltipProvider>
   );
 }

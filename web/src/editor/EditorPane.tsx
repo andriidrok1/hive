@@ -4,6 +4,7 @@ import { intentsForFile, type UiState } from "../state";
 import { fetchFile } from "../api";
 import { mockFileContent } from "../mock";
 import { MockEditor } from "./MockEditor";
+import { cn } from "../lib/utils";
 
 const LiveEditor = lazy(() => import("./LiveEditor"));
 
@@ -22,23 +23,30 @@ export function EditorPane({ state, mock, humanId }: Props) {
   const intents = path ? intentsForFile(state, path) : [];
 
   return (
-    <section className="left">
-      <nav className="filetabs" aria-label="files">
+    <section className="grid min-h-0 grid-rows-[36px_1fr] border-r border-border">
+      <nav className="flex items-stretch gap-0.5 overflow-x-auto border-b border-border px-2" aria-label="files">
         {files.map((f) => (
-          <button key={f.path} className={`filetab${f.path === path ? " active" : ""}`} onClick={() => setSelected(f.path)}>
+          <button
+            key={f.path}
+            className={cn(
+              "-mb-px flex items-center gap-2 border-b-2 border-transparent px-3 font-mono text-xs text-muted-foreground transition-colors hover:text-foreground",
+              f.path === path && "border-foreground text-foreground",
+            )}
+            onClick={() => setSelected(f.path)}
+          >
             {f.path}
-            <span className="rev">@{f.rev}</span>
+            <span className="text-[10px] text-zinc-600">@{f.rev}</span>
           </button>
         ))}
-        {files.length === 0 && <span className="filetab">no files yet</span>}
+        {files.length === 0 && <span className="px-3 font-mono text-xs text-muted-foreground">no files yet</span>}
       </nav>
-      <div className="editor">
+      <div className="editor relative min-h-0 overflow-auto bg-background">
         {path === null ? (
-          <div className="editor-wait">Waiting for the project…</div>
+          <div className="px-4 py-6 text-xs text-muted-foreground">Waiting for the project.</div>
         ) : mock ? (
           <MockEditor content={mockFileContent(path, state.rev)} intents={intents} />
         ) : (
-          <Suspense fallback={<div className="editor-wait">Loading editor…</div>}>
+          <Suspense fallback={<div className="px-4 py-6 text-xs text-muted-foreground">Loading editor.</div>}>
             <LiveEditor path={path} humanId={humanId} intents={intents} symbols={symbols} />
           </Suspense>
         )}
