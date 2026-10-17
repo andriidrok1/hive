@@ -311,6 +311,7 @@ export interface HiveState {
   history: ChangeSet[];
   lastGreen?: { rev: Rev; at: number };
   recentEvents: FeedEvent[]; // last 200
+  previewSiteUrl?: string; // public Freestyle preview site, when HIVE_PREVIEW_SITE=1
 }
 
 // ---------- Ports and env ----------
