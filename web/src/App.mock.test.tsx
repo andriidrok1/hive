@@ -51,6 +51,7 @@ describe("App in ?mock=1 mode", () => {
     expect(screen.getByRole("tab", { name: /^Agents/ }).getAttribute("aria-selected")).toBe("true");
     expect(screen.getByTestId("culprit-notice").textContent).toBe("Culprit: andrii's A1 + masha's M2 together");
     expect(screen.getByTestId("tests-tile").textContent).toContain("6");
+    expect(screen.getByTestId("tests-tile").textContent).toContain("@rev 6");
 
     // Mock editor shows the file with intent labels on the target symbol.
     expect(screen.getByTestId("mock-editor").textContent).toContain("calculateTotal");

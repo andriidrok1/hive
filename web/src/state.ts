@@ -31,9 +31,28 @@ export interface CulpritGrid {
   report?: CulpritReport;
 }
 
+export interface TestRun {
+  runId: string;
+  rev: number;
+  result: TestResult;
+  at: number;
+  reason?: string;
+}
+
 export interface TestsState {
   running?: { runId: string; rev: number; reason: string; startedAt: number };
-  last?: { runId: string; rev: number; result: TestResult; at: number };
+  last?: TestRun; // any run, for the Culprit tab line
+  lastFull?: TestRun; // full-suite runs only, for the "Tests passed" tile
+  reasons: Record<string, string>; // runId -> reason from test_run_started
+}
+
+// Intent checks ("check A1 …") and filtered run_tests calls are not the suite: the tile ignores them.
+export function isFullSuiteRun(reason: string | undefined, result: TestResult): boolean {
+  if (reason !== undefined) {
+    const r = reason.toLowerCase();
+    if (r.startsWith("check") || r.includes("filter")) return false;
+  }
+  return result.passed + result.failed >= 2;
 }
 
 export type Connection = "mock" | "connecting" | "open" | "reconnecting";
@@ -86,7 +105,7 @@ export function initialUiState(h: HiveState = emptyHiveState): UiState {
     briefings: {},
     messages: [],
     actions: {},
-    tests: {},
+    tests: { reasons: {} },
   };
   // Replay the tail the server keeps so counters are not zero after a reload.
   return [...h.recentEvents].sort((a, b) => a.id - b.id).reduce(reduce, base);
@@ -228,12 +247,17 @@ export function reduce(state: UiState, e: FeedEvent): UiState {
         messages: [...base.messages, e.message],
         actions: pushAction(base.actions, e.message.from, `asked ${e.message.to} about ${e.message.about}`),
       };
-    case "test_run_started":
-      return { ...base, tests: { ...base.tests, running: { runId: e.runId, rev: e.rev, reason: e.reason, startedAt: e.ts } } };
+    case "test_run_started": {
+      const reasons = { ...base.tests.reasons, [e.runId]: e.reason };
+      return { ...base, tests: { ...base.tests, reasons, running: { runId: e.runId, rev: e.rev, reason: e.reason, startedAt: e.ts } } };
+    }
     case "test_run_finished": {
       const running = base.tests.running?.runId === e.runId ? undefined : base.tests.running;
       const lastGreen = e.result.ok ? { rev: e.rev, at: e.ts } : base.lastGreen;
-      return { ...base, lastGreen, tests: { running, last: { runId: e.runId, rev: e.rev, result: e.result, at: e.ts } } };
+      const reason = base.tests.reasons[e.runId];
+      const run: TestRun = { runId: e.runId, rev: e.rev, result: e.result, at: e.ts, reason };
+      const lastFull = isFullSuiteRun(reason, e.result) ? run : base.tests.lastFull;
+      return { ...base, lastGreen, tests: { ...base.tests, running, last: run, lastFull } };
     }
     case "culprit_search_started":
       return {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { FeedEvent } from "@hive/shared";
-import { currentIntentOf, initialUiState, reduce, resync, type UiState } from "./state";
+import { currentIntentOf, initialUiState, isFullSuiteRun, reduce, resync, type UiState } from "./state";
 import { MOCK_EVENTS, mockInitialState } from "./mock";
 
 function pick<T extends FeedEvent["type"]>(type: T, n = 0): Extract<FeedEvent, { type: T }> {
@@ -79,6 +79,29 @@ describe("reducer", () => {
     // Only labels the server actually sent for cs_2 appear.
     const withOne = reduce(next, { id: next.lastEventId + 1, ts: 2, type: "culprit_variant_result", searchId: "cs_2", variant: { label: "green+M3", applied: ["M3"], ok: false } });
     expect(withOne.culprit?.order).toEqual(["green+M3"]);
+  });
+
+  it("Tests passed uses full-suite runs only: intent checks and filtered runs do not replace it", () => {
+    const full = run(MOCK_EVENTS);
+    expect(full.tests.lastFull?.result.passed).toBe(6);
+    expect(full.tests.lastFull?.rev).toBe(6);
+    let s = full;
+    const next = () => s.lastEventId + 1;
+    s = reduce(s, { id: next(), ts: 1, type: "test_run_started", runId: "chk_1", rev: 7, reason: "check A9 promise" });
+    s = reduce(s, { id: next(), ts: 2, type: "test_run_finished", runId: "chk_1", rev: 7, result: { ok: true, passed: 1, failed: 0, failures: [], durationMs: 200 } });
+    expect(s.tests.last?.runId).toBe("chk_1"); // the Culprit tab line still sees it
+    expect(s.tests.lastFull?.runId).toBe("run_3"); // the tile does not
+    s = reduce(s, { id: next(), ts: 3, type: "test_run_started", runId: "flt_1", rev: 7, reason: "run_tests filter=checkout" });
+    s = reduce(s, { id: next(), ts: 4, type: "test_run_finished", runId: "flt_1", rev: 7, result: { ok: false, passed: 3, failed: 1, failures: [], durationMs: 200 } });
+    expect(s.tests.lastFull?.runId).toBe("run_3");
+    s = reduce(s, { id: next(), ts: 5, type: "test_run_started", runId: "run_4", rev: 8, reason: "A9 finished" });
+    s = reduce(s, { id: next(), ts: 6, type: "test_run_finished", runId: "run_4", rev: 8, result: { ok: false, passed: 5, failed: 2, failures: [], durationMs: 900 } });
+    expect(s.tests.lastFull?.runId).toBe("run_4");
+    expect(s.tests.lastFull?.rev).toBe(8);
+    // A finished event without a seen start (reconnect tail) counts only when it looks like a suite.
+    expect(isFullSuiteRun(undefined, { ok: true, passed: 1, failed: 0, failures: [], durationMs: 1 })).toBe(false);
+    expect(isFullSuiteRun(undefined, { ok: true, passed: 2, failed: 0, failures: [], durationMs: 1 })).toBe(true);
+    expect(isFullSuiteRun("Check: A1", { ok: true, passed: 9, failed: 0, failures: [], durationMs: 1 })).toBe(false);
   });
 
   it("ignores duplicate event ids", () => {

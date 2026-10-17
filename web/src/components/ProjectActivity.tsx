@@ -99,7 +99,9 @@ export function ProjectActivity({ state, now, onShowAll, onOpenCulprit }: { stat
   const notice = culpritNotice(state);
   const working = state.agents.filter((a) => a.status === "thinking" || a.status === "tool").length;
   const idle = state.agents.filter((a) => a.status === "idle" || a.status === "paused").length + state.intents.filter((i) => i.status === "conflict").length;
-  const last = state.tests.last?.result;
+  // Full-suite runs only (intent checks and filtered runs are skipped in the reducer).
+  const full = state.tests.lastFull;
+  const last = full?.result;
   const total = last ? last.passed + last.failed : 0;
   const rows = activityRows(state);
   return (
@@ -128,6 +130,7 @@ export function ProjectActivity({ state, now, onShowAll, onOpenCulprit }: { stat
             )
           }
           label="Tests passed"
+          sub={full ? `@rev ${full.rev}` : undefined}
           testId="tests-tile"
         />
       </div>
@@ -167,11 +170,12 @@ export function ProjectActivity({ state, now, onShowAll, onOpenCulprit }: { stat
   );
 }
 
-function Tile({ value, label, testId }: { value: React.ReactNode; label: string; testId?: string }) {
+function Tile({ value, label, sub, testId }: { value: React.ReactNode; label: string; sub?: string; testId?: string }) {
   return (
     <div className="flex flex-col items-center gap-0.5 rounded-lg border border-border bg-background py-3" data-testid={testId}>
       <span className="text-[22px] font-semibold leading-none tabular-nums">{value}</span>
       <span className="text-xs text-muted-foreground">{label}</span>
+      {sub && <span className="font-mono text-[10px] text-zinc-500">{sub}</span>}
     </div>
   );
 }
