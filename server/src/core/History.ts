@@ -1,4 +1,4 @@
-import { applyPatch, createPatch } from "diff";
+import { applyPatch, createPatch, parsePatch, type StructuredPatch } from "diff";
 import type { ChangeSet, Intent, IntentId, Rev, Snapshot } from "@hive/shared";
 import { badArgs, lineDelta, type ProjectStore } from "./ProjectStore.js";
 
@@ -23,10 +23,64 @@ interface OpenIntent {
 
 const PATCH_OPTS = { context: 3 } as const;
 
+/** Returns a copy of the hunk with at most `n` leading and trailing context lines. */
+function trimHunkContext(hunk: StructuredPatch["hunks"][number], n: number): StructuredPatch["hunks"][number] {
+  const lines = [...hunk.lines];
+  let { oldStart, newStart, oldLines, newLines } = hunk;
+  let lead = 0;
+  while (lead < lines.length && lines[lead]!.startsWith(" ")) lead++;
+  const dropLead = Math.max(0, lead - n);
+  lines.splice(0, dropLead);
+  oldStart += dropLead;
+  newStart += dropLead;
+  oldLines -= dropLead;
+  newLines -= dropLead;
+  // trailing: a "\ No newline at end of file" marker belongs to the line before it
+  let trail = 0;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const l = lines[i]!;
+    if (l.startsWith("\\")) continue;
+    if (!l.startsWith(" ")) break;
+    trail++;
+  }
+  let dropTrail = Math.max(0, trail - n);
+  while (dropTrail > 0) {
+    const last = lines[lines.length - 1]!;
+    lines.pop();
+    if (last.startsWith("\\")) continue;
+    dropTrail--;
+    oldLines--;
+    newLines--;
+  }
+  return { ...hunk, lines, oldStart, newStart, oldLines, newLines };
+}
+
 /**
- * Applies each patch in order with fuzzFactor 2: a later patch's context may include
+ * Applies one stored patch. First exactly as the contract says: `applyPatch(text, patch, { fuzzFactor: 2 })`.
+ * jsdiff never tolerates a mismatch on the context line directly next to an insertion, so a patch made
+ * right after another intent edited the neighbouring line (N vs N+1) cannot apply alone on green that way.
+ * In that case the same hunks are retried with their outer context trimmed to 1 and then 0 lines; the
+ * removed lines still have to be found exactly, nearest to the expected position first.
+ */
+export function applyOnePatch(text: string, patch: string): string | false {
+  const direct = applyPatch(text, patch, { fuzzFactor: 2 });
+  if (direct !== false) return direct;
+  const parsed = parsePatch(patch);
+  const structured = parsed[0];
+  if (!structured || parsed.length !== 1) return false;
+  for (const n of [1, 0]) {
+    const trimmed: StructuredPatch = { ...structured, hunks: structured.hunks.map((h) => trimHunkContext(h, n)) };
+    const res = applyPatch(text, trimmed, { fuzzFactor: 2 });
+    if (res !== false) return res;
+  }
+  return false;
+}
+
+/**
+ * Applies each patch in order (see applyOnePatch): a later patch's context may include
  * neighbouring edits by other intents, so exact-context matching would fail on adjacent edits.
  * A patch for a path missing from `files` is applied to "" (file created by the intent).
+ * The input object is not mutated.
  */
 export function applyEdits(
   files: Record<string, string>,
@@ -36,7 +90,7 @@ export function applyEdits(
   for (let index = 0; index < edits.length; index++) {
     const edit = edits[index]!;
     const current = out[edit.path] ?? "";
-    const next = applyPatch(current, edit.patch, { fuzzFactor: 2 });
+    const next = applyOnePatch(current, edit.patch);
     if (next === false) return { ok: false, path: edit.path, index };
     out[edit.path] = next;
   }
