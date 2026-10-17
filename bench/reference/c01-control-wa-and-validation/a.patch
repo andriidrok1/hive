@@ -1,0 +1,27 @@
+diff --git a/src/tax.ts b/src/tax.ts
+index 5ab7de9..1241ea9 100644
+--- a/src/tax.ts
++++ b/src/tax.ts
+@@ -4,6 +4,7 @@ export const TAX_RATES: Record<string, number> = {
+   NY: 0.04,
+   TX: 0.0625,
+   OR: 0,
++  WA: 0.065,
+ };
+ 
+ /** Total including tax for the given state, rounded to whole cents. */
+diff --git a/test/tax.test.ts b/test/tax.test.ts
+index 4a78007..df49ff9 100644
+--- a/test/tax.test.ts
++++ b/test/tax.test.ts
+@@ -10,6 +10,10 @@ describe("applyTax", () => {
+     expect(applyTax(1000, "NY")).toBe(1040);
+   });
+ 
++  it("adds Washington tax", () => {
++    expect(applyTax(10000, "WA")).toBe(10650);
++  });
++
+   it("rounds to whole cents", () => {
+     expect(applyTax(1000, "TX")).toBe(1063);
+   });

@@ -1,0 +1,22 @@
+{
+  "id": "s06-semantic",
+  "title": "Skip non-positive quantities vs refunds as negative lines",
+  "conflict": true,
+  "agents": [
+    {
+      "agentId": "agent-andrii",
+      "humanId": "andrii",
+      "task": "Make subtotal in src/checkout.ts ignore lines whose qty is 0 or negative (they count as removed from the cart). Add tests in test/checkout.test.ts."
+    },
+    {
+      "agentId": "agent-masha",
+      "humanId": "masha",
+      "task": "Support refunds in orderSummary (src/order.ts): an item with a negative qty is a refund. Its receipt line is `Refund ${sku} x${-qty} -${formatPrice(priceCents * -qty)}` and it reduces subtotal and total (a $10 item plus a $3 refund totals $7). Add tests in test/refunds.test.ts."
+    }
+  ],
+  "startDelaysMs": { "agent-andrii": 0, "agent-masha": 20000 },
+  "expectedCulprits": ["agent-andrii", "agent-masha"],
+  "acceptance": "npm test",
+  "extraTests": "test/s06.accept.test.ts",
+  "notes": "Semantic conflict on the meaning of qty < 0. Correct merge: subtotal skips only qty === 0 and keeps negative lines as refunds."
+}

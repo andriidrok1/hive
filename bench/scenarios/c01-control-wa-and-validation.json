@@ -1,0 +1,22 @@
+{
+  "id": "c01-control-wa-and-validation",
+  "title": "Control: Washington tax rate and percent promo validation",
+  "conflict": false,
+  "agents": [
+    {
+      "agentId": "agent-andrii",
+      "humanId": "andrii",
+      "task": "Add Washington to TAX_RATES in src/tax.ts with the rate 0.065 and add a test that applyTax(10000, \"WA\") returns 10650."
+    },
+    {
+      "agentId": "agent-masha",
+      "humanId": "masha",
+      "task": "Validate percent promos in applyDiscount in src/discount.ts: if promo.kind is \"percent\" and promo.value is below 0 or above 100, throw an Error whose message contains \"percent\". Add tests for both out-of-range cases and one in-range case."
+    }
+  ],
+  "startDelaysMs": { "agent-andrii": 0, "agent-masha": 20000 },
+  "expectedCulprits": [],
+  "acceptance": "npm test",
+  "extraTests": "test/c01.accept.test.ts",
+  "notes": "No conflict: different files, independent behavior. Any conflict warning, culprit search or merge conflict here is a false alarm."
+}

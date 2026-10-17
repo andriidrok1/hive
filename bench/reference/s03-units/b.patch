@@ -1,0 +1,37 @@
+diff --git a/src/promos.ts b/src/promos.ts
+new file mode 100644
+index 0000000..3e8f393
+--- /dev/null
++++ b/src/promos.ts
+@@ -0,0 +1,11 @@
++import type { Promo } from "./types.js";
++
++/** Promo codes the store currently accepts. */
++export const PROMOS: Record<string, Promo> = {
++  WELCOME5: { code: "WELCOME5", kind: "fixed", value: 500 },
++};
++
++/** Looks a code up case-insensitively. */
++export function findPromo(code: string): Promo | undefined {
++  return PROMOS[code.toUpperCase()];
++}
+diff --git a/test/promos.test.ts b/test/promos.test.ts
+new file mode 100644
+index 0000000..5c52a7a
+--- /dev/null
++++ b/test/promos.test.ts
+@@ -0,0 +1,14 @@
++import { describe, expect, it } from "vitest";
++import { calculateTotal } from "../src/checkout.js";
++import { PROMOS, findPromo } from "../src/promos.js";
++
++describe("promos", () => {
++  it("finds codes case-insensitively", () => {
++    expect(findPromo("welcome5")).toBe(PROMOS.WELCOME5);
++    expect(findPromo("NOPE")).toBeUndefined();
++  });
++
++  it("WELCOME5 takes $5 off a $20 cart", () => {
++    expect(calculateTotal([{ sku: "mug", priceCents: 2000, qty: 1 }], PROMOS.WELCOME5)).toBe(1500);
++  });
++});

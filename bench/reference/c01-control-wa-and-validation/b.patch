@@ -1,0 +1,37 @@
+diff --git a/src/discount.ts b/src/discount.ts
+index b89cce2..cccea3a 100644
+--- a/src/discount.ts
++++ b/src/discount.ts
+@@ -6,6 +6,9 @@ import type { Promo } from "./types.js";
+  */
+ export function applyDiscount(subtotalCents: number, promo?: Promo): number {
+   if (!promo) return subtotalCents;
++  if (promo.kind === "percent" && (promo.value < 0 || promo.value > 100)) {
++    throw new Error(`Invalid percent promo ${promo.code}: value must be between 0 and 100`);
++  }
+   const discount = promo.kind === "percent" ? (subtotalCents * promo.value) / 100 : promo.value;
+   return Math.max(0, subtotalCents - discount);
+ }
+diff --git a/test/discount.test.ts b/test/discount.test.ts
+index 9825096..24bd970 100644
+--- a/test/discount.test.ts
++++ b/test/discount.test.ts
+@@ -14,6 +14,18 @@ describe("applyDiscount", () => {
+     expect(applyDiscount(1000, { code: "OFF250", kind: "fixed", value: 250 })).toBe(750);
+   });
+ 
++  it("accepts percent values between 0 and 100", () => {
++    expect(applyDiscount(1000, { code: "ALL", kind: "percent", value: 100 })).toBe(0);
++  });
++
++  it("rejects percent values above 100", () => {
++    expect(() => applyDiscount(1000, { code: "BAD", kind: "percent", value: 150 })).toThrow(/percent/);
++  });
++
++  it("rejects negative percent values", () => {
++    expect(() => applyDiscount(1000, { code: "NEG", kind: "percent", value: -5 })).toThrow(/percent/);
++  });
++
+   it("never goes below zero", () => {
+     expect(applyDiscount(200, { code: "BIG", kind: "fixed", value: 500 })).toBe(0);
+   });
