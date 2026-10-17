@@ -2,7 +2,7 @@
 
 **One live project for people and their coding agents.** Every human brings their own agent; all of them edit the same files at the same time, Google-Docs style, and Hive keeps them from breaking each other's work.
 
-<p align="center"><img src="docs/img/hive-ide.png" alt="Hive: two agents editing the same file, each with a declared intent over the function it is changing" width="920"></p>
+<p align="center"><img src="docs/img/hive-editor.png" alt="Hive: two agents editing the same file, each with a declared intent over the function it is changing" width="920"></p>
 
 Built in one day at [c0mpiled-14](https://luma.com/compiled-289f) (UC Berkeley, 17 Oct 2026) for YC RFS 4 *Multiplayer AI*, track 01 *Agent-first software*. Stack: TypeScript, Yjs, Fastify, React, OpenAI `gpt-5.4-mini`, [Freestyle](https://freestyle.sh) VMs.
 
