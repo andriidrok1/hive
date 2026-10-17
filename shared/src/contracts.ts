@@ -157,6 +157,7 @@ export type ToolErrorCode =
   | "OLD_TEXT_NOT_FOUND" // error.current = fresh content of the file
   | "OLD_TEXT_AMBIGUOUS"
   | "UNACKED_BRIEFINGS" // ack required briefings before editing
+  | "NOT_OWNER" // path is outside this agent's `owns` list; error.message names the owner, ask them instead
   | "EXCHANGE_LIMIT"
   | "RUNNER_ERROR"
   | "INTERNAL";
@@ -302,7 +303,9 @@ export interface HiveState {
   mode: HiveMode;
   rev: Rev;
   files: FileInfo[];
-  agents: { agentId: AgentId; humanId: HumanId; status: AgentStatus; task?: string; control: AgentControl }[];
+  // owns: optional file-ownership zones given at POST /api/agents ({ agentId, humanId, task, owns?: string[] }).
+  // When present, declare_intent/edit_region/create_file outside these paths fail with NOT_OWNER.
+  agents: { agentId: AgentId; humanId: HumanId; status: AgentStatus; task?: string; control: AgentControl; owns?: string[] }[];
   intents: Intent[];
   history: ChangeSet[];
   lastGreen?: { rev: Rev; at: number };
