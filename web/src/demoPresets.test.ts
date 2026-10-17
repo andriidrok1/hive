@@ -35,7 +35,7 @@ describe("spawnDemoAgents", () => {
     const second = fetchMock.mock.calls[1] as unknown as [string, RequestInit];
     const nika = DEMO_PRESETS[1];
     expect(JSON.parse(String(second[1].body))).toEqual({ agentId: nika?.agentId, humanId: nika?.humanId, task: nika?.task });
-    expect(getAgentTitle("agent-nika")).toBe("Negative prices and percent formatting in format.ts");
+    expect(getAgentTitle("agent-nika")).toBe("Tax line and taxed summary in order.ts");
   });
 
   it("firstClause gives untitled agents a short summary", () => {
@@ -49,8 +49,9 @@ describe("spawnDemoAgents", () => {
     expect(DEMO_PRESETS.map((p) => p.agentId)).toEqual(["agent-alex", "agent-nika"]);
     expect(DEMO_PRESETS[0]?.task).toContain("receiptWidth(items, promo?)");
     expect(DEMO_PRESETS[0]?.task).toContain('"\\n"');
-    expect(DEMO_PRESETS[1]?.task).toContain("formatPercent(value)");
-    expect(DEMO_PRESETS[1]?.task).toContain('"7.5%" for 7.5');
-    expect(DEMO_PRESETS[1]?.task).toContain('"-$1.50" for -150');
+    expect(DEMO_PRESETS[1]?.task).toContain("taxLine(totalCents, state)");
+    expect(DEMO_PRESETS[1]?.task).toContain("orderSummaryWithTax(items, promo, state)");
+    expect(DEMO_PRESETS[1]?.task).toContain("import applyTax from ./tax.js");
+    expect(DEMO_PRESETS[1]?.task).toContain("do not change orderSummary itself");
   });
 });
