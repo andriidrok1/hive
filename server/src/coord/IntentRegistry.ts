@@ -24,13 +24,16 @@ export interface IntentRegistryDeps {
   briefings: BriefingQueue;
   onEvent: (e: FeedEventBody) => void;
   mode: HiveMode;
+  /** How long an `approved` intent with no edits yet reserves its target against other agents. */
+  reservationMs?: number;
 }
 
+export const DEFAULT_RESERVATION_MS = 45_000;
+
 const ACTIVE: readonly IntentStatus[] = ["approved", "in_progress"];
-// `failed` counts for conflict checks: its edits are already in the project, so its promise is a
-// standing (broken) contract until a human cancels it or the owner re-declares.
-const BLOCKING: readonly IntentStatus[] = ["approved", "in_progress", "failed"];
-const PROMISING: readonly IntentStatus[] = ["approved", "in_progress", "done", "verified", "failed"];
+// Standing promises for the contradiction check: `done` counts until the green run, `failed`
+// because its edits are already in the project (a broken contract is still a contract).
+const PROMISING: readonly IntentStatus[] = ["in_progress", "done", "verified", "failed"];
 const RELEASING: readonly IntentStatus[] = ["done", "verified", "cancelled", "failed"];
 const VAGUE_WORDS = new Set(["works", "work", "working", "done", "fixed", "fix", "updated", "update", "changed", "improved", "better", "ok", "okay", "good", "correct", "correctly"]);
 const FILLER = new Set(["it", "is", "the", "a", "an", "and", "now", "this", "that", "code", "function", "should", "will", "be", "all", "everything", "properly", "as", "expected"]);
@@ -67,11 +70,29 @@ export class IntentRegistry {
   private conflictsOf = new Map<IntentId, IntentConflict[]>();
   private prefixOf = new Map<AgentId, string>();
   private counters = new Map<AgentId, number>();
+  private approvedAt = new Map<IntentId, number>();
 
   constructor(private readonly deps: IntentRegistryDeps) {}
 
   get mode(): HiveMode {
     return this.deps.mode;
+  }
+
+  get reservationMs(): number {
+    return this.deps.reservationMs ?? DEFAULT_RESERVATION_MS;
+  }
+
+  /** Reserves its target against other agents: editing, or approved less than `reservationMs` ago. */
+  isBlocking(intent: Intent, now = Date.now()): boolean {
+    if (intent.status === "in_progress") return true;
+    if (intent.status !== "approved") return false;
+    const since = this.approvedAt.get(intent.id) ?? intent.updatedAt;
+    return now - since < this.reservationMs;
+  }
+
+  /** A promise others must not contradict: blocking, or already in the code (done | verified | failed). */
+  private isStanding(intent: Intent, now: number): boolean {
+    return PROMISING.includes(intent.status) || this.isBlocking(intent, now);
   }
 
   // ---------- ids ----------
@@ -97,10 +118,16 @@ export class IntentRegistry {
   // ---------- queries ----------
 
   get(id: IntentId): Intent | undefined {
+    this.reconcile();
     return this.intents.get(id);
   }
 
   list(): Intent[] {
+    this.reconcile();
+    return this.listRaw();
+  }
+
+  private listRaw(): Intent[] {
     return this.order.map((id) => this.intents.get(id)!).filter(Boolean);
   }
 
@@ -140,21 +167,23 @@ export class IntentRegistry {
       return { intent, status: "approved", conflicts: [], dependents: [] };
     }
 
+    // Expired reservations have no event; release what they were blocking before checking against the current set.
+    this.reconcile(now);
     const conflicts: IntentConflict[] = [];
-    const others = this.list().filter((i) => i.agentId !== agentId);
+    const others = this.listRaw().filter((i) => i.agentId !== agentId);
 
-    // 3. same target
+    // 3. same target, against intents that currently block (editing, or freshly approved)
     for (const o of others) {
-      if (!BLOCKING.includes(o.status)) continue;
+      if (!this.isBlocking(o, now)) continue;
       if (o.target.file === intent.target.file && o.target.symbol === intent.target.symbol) {
         conflicts.push({ intentId: o.id, kind: "same_target", reason: `${o.agentId} is already changing ${o.target.symbol} in ${o.target.file} (${o.id}: ${o.what})` });
       }
     }
 
-    // 4. contradiction
+    // 4. contradiction, against standing promises
     const flagged = new Set(conflicts.map((c) => c.intentId));
     const related = this.relatedSymbols(intent.target.symbol);
-    const candidates = others.filter((o) => PROMISING.includes(o.status) && !flagged.has(o.id) && related.has(o.target.symbol));
+    const candidates = others.filter((o) => this.isStanding(o, now) && !flagged.has(o.id) && related.has(o.target.symbol));
     if (candidates.length > 0) {
       const verdict = await this.askContradiction(intent, candidates);
       if (verdict.conflict) {
@@ -215,6 +244,7 @@ export class IntentRegistry {
     this.intents.set(intent.id, intent);
     this.order.push(intent.id);
     this.conflictsOf.set(intent.id, conflicts);
+    if (intent.status === "approved") this.approvedAt.set(intent.id, intent.createdAt);
   }
 
   /** The symbol itself, its callers and its callees. */
@@ -255,7 +285,7 @@ export class IntentRegistry {
     for (const r of this.deps.reads.readersOf(file, symbol)) out.add(r.agentId);
     const callerNames = new Set<string>();
     for (const c of this.deps.graph.callersOf(symbol)) if (c.caller) callerNames.add(c.caller);
-    for (const i of this.list()) {
+    for (const i of this.listRaw()) {
       if (ACTIVE.includes(i.status) && callerNames.has(i.target.symbol)) out.add(i.agentId);
     }
     if (self) out.delete(self);
@@ -265,7 +295,7 @@ export class IntentRegistry {
   /** Call sites of `symbol` in files this agent read or whose enclosing symbol this agent targets. */
   private usagesOf(agentId: AgentId, symbol: string): { file: string; line: number }[] {
     const readFiles = new Set(this.deps.reads.readsOf(agentId).map((r) => r.path));
-    const targets = new Set(this.list().filter((i) => i.agentId === agentId && ACTIVE.includes(i.status)).map((i) => i.target.symbol));
+    const targets = new Set(this.listRaw().filter((i) => i.agentId === agentId && ACTIVE.includes(i.status)).map((i) => i.target.symbol));
     return this.deps.graph
       .callersOf(symbol)
       .filter((c) => readFiles.has(c.file) || (c.caller !== null && targets.has(c.caller)))
@@ -280,25 +310,30 @@ export class IntentRegistry {
     intent.status = status;
     intent.updatedAt = Date.now();
     if (opts?.rev !== undefined && (status === "done" || status === "verified")) intent.endRev = opts.rev;
+    if (status === "approved") this.approvedAt.set(id, intent.updatedAt);
     this.deps.onEvent({ type: "intent_status", intentId: id, status });
-    if (RELEASING.includes(status)) this.reevaluateConflicts(id);
+    if (RELEASING.includes(status)) this.reconcile();
   }
 
-  private conflictStillActive(c: IntentConflict): boolean {
+  /** Does this conflict still hold? same_target: while the other blocks; contradiction: while the other is a standing promise. */
+  private conflictStillActive(c: IntentConflict, now: number): boolean {
     const other = this.intents.get(c.intentId);
     if (!other) return false;
-    return BLOCKING.includes(other.status) || other.status === "conflict";
+    return c.kind === "same_target" ? this.isBlocking(other, now) : this.isStanding(other, now);
   }
 
-  /** `resolved` left the active set: intents in `conflict` only because of it become approved. */
-  private reevaluateConflicts(resolved: IntentId): void {
-    for (const intent of this.list()) {
+  /**
+   * Re-approve intents in `conflict` whose blockers no longer block (cancelled, finished, or the
+   * reservation expired, which has no event of its own). Idempotent; cheap enough for list()/get().
+   */
+  reconcile(now = Date.now()): void {
+    for (const intent of this.listRaw()) {
       if (intent.status !== "conflict") continue;
       const conflicts = this.conflictsOf.get(intent.id) ?? [];
-      if (!conflicts.some((c) => c.intentId === resolved)) continue;
-      const remaining = conflicts.filter((c) => this.conflictStillActive(c));
+      const remaining = conflicts.filter((c) => this.conflictStillActive(c, now));
       if (remaining.length > 0) continue;
-      this.approveAfterConflict(intent, `the conflicting intent ${resolved} is no longer active`);
+      const cleared = conflicts.map((c) => c.intentId).join(", ");
+      this.approveAfterConflict(intent, `the conflicting intent${conflicts.length > 1 ? "s" : ""} ${cleared} no longer block${conflicts.length > 1 ? "" : "s"} it`);
     }
   }
 
