@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { applyPatch } from "diff";
 import type { Intent } from "@hive/shared";
-import { ProjectStore, History, applyEdits } from "../../src/core/index.js";
+import { ProjectStore, History, applyEdits, buildView } from "../../src/core/index.js";
 import { FILES, CHECKOUT } from "./fixtures.js";
 
 function intent(id: string, agentId: string, symbol: string, baseRev: number): Intent {
@@ -210,6 +210,103 @@ describe("History", () => {
     expect(last.files["src/checkout.ts"]).not.toContain("negative subtotal");
     expect(last.files["src/format.ts"]).toBe(FILES["src/format.ts"]);
     expect(history.allSnapshots()).toHaveLength(3);
+  });
+
+  it("openEdits returns in-progress edits in order and nothing after finish", () => {
+    const { store, history, green } = setup();
+    expect(history.openEdits("A1")).toEqual([]);
+    history.beginIntent(intent("A1", "agent-a", "calculateTotal", 0));
+    expect(history.openEdits("A1")).toEqual([]);
+    edit(store, "agent-a", "A1", ...A_EDIT_1);
+    const one = history.openEdits("A1");
+    expect(one).toHaveLength(1);
+    expect(one[0]!.path).toBe("src/checkout.ts");
+    expect(one[0]!.patch).toContain("+  if (subtotal < 0)");
+    edit(store, "agent-a", "A1", ...A_EDIT_2);
+    const two = history.openEdits("A1");
+    expect(two).toHaveLength(2);
+    expect(two[1]!.patch).toContain("+  return Math.max(0, applyDiscount");
+    const replay = applyEdits(green.files, two);
+    expect(replay.ok).toBe(true);
+    if (replay.ok) expect(replay.files["src/checkout.ts"]).toBe(store.readFile("src/checkout.ts")!.content);
+    const cs = history.finishIntent("A1");
+    expect(cs.edits).toEqual(two);
+    expect(history.openEdits("A1")).toEqual([]);
+  });
+
+  it("openIntents lists begun-and-unfinished intents, optionally per agent", () => {
+    const { store, history } = setup();
+    expect(history.openIntents()).toEqual([]);
+    history.beginIntent(intent("A1", "agent-a", "calculateTotal", 0));
+    history.beginIntent(intent("B1", "agent-b", "applyTax", 0));
+    history.beginIntent(intent("A2", "agent-a", "applyDiscount", 0));
+    edit(store, "agent-a", "A1", ...A_EDIT_1);
+    store.createFile({ actor: "agent-a", intentId: "A1", path: "src/log.ts", content: "// log\n" });
+    expect(history.openIntents()).toEqual([
+      { intentId: "A1", agentId: "agent-a", files: ["src/checkout.ts", "src/log.ts"] },
+      { intentId: "B1", agentId: "agent-b", files: [] },
+      { intentId: "A2", agentId: "agent-a", files: [] },
+    ]);
+    expect(history.openIntents("agent-b")).toEqual([{ intentId: "B1", agentId: "agent-b", files: [] }]);
+    expect(history.openIntents("agent-z")).toEqual([]);
+    history.finishIntent("A1");
+    expect(history.openIntents("agent-a")).toEqual([{ intentId: "A2", agentId: "agent-a", files: [] }]);
+  });
+
+  it("saveSnapshot with a view stores the view, not the live store", () => {
+    const { store, history } = setup();
+    history.beginIntent(intent("A1", "agent-a", "calculateTotal", 0));
+    edit(store, "agent-a", "A1", ...A_EDIT_2); // rev 1
+    const view = { rev: 1, files: store.allFiles() };
+    // a concurrent edit by someone else lands before the orchestrator saves the result
+    store.editRegion({ actor: "agent-b", intentId: "B1", path: "src/checkout.ts", oldText: "0.0725", newText: "0.0875" }); // rev 2
+    const snap = history.saveSnapshot(true, view);
+    expect(snap.rev).toBe(1);
+    expect(snap.green).toBe(true);
+    expect(snap.files["src/checkout.ts"]).toContain("Math.max(0, applyDiscount");
+    expect(snap.files["src/checkout.ts"]).not.toContain("0.0875");
+    expect(history.lastGreen()).toBe(snap);
+    // the stored files are a copy: mutating the caller's view afterwards changes nothing
+    view.files["src/checkout.ts"] = "mutated";
+    expect(snap.files["src/checkout.ts"]).not.toBe("mutated");
+    const live = history.saveSnapshot(false);
+    expect(live.rev).toBe(2);
+    expect(live.files["src/checkout.ts"]).toContain("0.0875");
+  });
+
+  it("buildView = base + finished sets in order + extra edits", () => {
+    const { store, history, green } = setup();
+    history.beginIntent(intent("A1", "agent-a", "calculateTotal", 0));
+    history.beginIntent(intent("B1", "agent-b", "applyTax", 0));
+    history.beginIntent(intent("C1", "agent-c", "applyDiscount", 0));
+    edit(store, "agent-a", "A1", ...A_EDIT_1);
+    edit(store, "agent-b", "B1", ...B_EDIT);
+    edit(store, "agent-a", "A1", ...A_EDIT_2);
+    edit(store, "agent-c", "C1", "  if (!promo) return subtotal;", "  if (!promo || promo.percent <= 0) return subtotal;");
+    history.finishIntent("A1");
+    history.finishIntent("B1");
+    const sets = history.changeSetsSince(green.rev);
+    expect(sets.map((s) => s.id)).toEqual(["B1", "A1"]);
+
+    const withoutC = buildView(green.files, sets);
+    expect(withoutC.ok).toBe(true);
+    if (withoutC.ok) {
+      const t = withoutC.files["src/checkout.ts"]!;
+      expect(t).toContain("negative subtotal");
+      expect(t).toContain('state === "NY"');
+      expect(t).not.toContain("promo.percent <= 0");
+    }
+
+    const forC = buildView(green.files, sets, history.openEdits("C1"));
+    expect(forC.ok).toBe(true);
+    if (forC.ok) expect(forC.files["src/checkout.ts"]).toBe(store.readFile("src/checkout.ts")!.content);
+    expect(green.files["src/checkout.ts"]).toBe(CHECKOUT); // base untouched
+
+    const brokenSet = { ...sets[0]!, id: "X9", edits: [{ path: "src/checkout.ts", patch: sets[0]!.edits[0]!.patch.replace("0.0725", "9.9999") }] };
+    const bad = buildView(green.files, [brokenSet]);
+    expect(bad).toEqual({ ok: false, failedAt: { intentId: "X9", path: "src/checkout.ts", index: 0 } });
+    const badExtra = buildView(green.files, [], brokenSet.edits);
+    expect(badExtra).toEqual({ ok: false, failedAt: { path: "src/checkout.ts", index: 0 } });
   });
 
   it("ignores edits without an intent or outside an open intent; finishIntent is idempotent", () => {
