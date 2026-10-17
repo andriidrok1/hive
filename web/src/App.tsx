@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { FileText, FlaskConical, GitBranch, Plus, Rss } from "lucide-react";
 import { connectLive, createStore, resyncAfterReset, startMock, useHive } from "./store";
 import { hub } from "./editor/yjs";
-import { currentIntentOf, pendingBriefings, unresolvedConflicts } from "./state";
+import { currentIntentOf, filesOfAgent, pendingBriefings, unresolvedConflicts } from "./state";
+import { ProjectActivity } from "./components/ProjectActivity";
 import { isMock, lanUrl, loadHumanId, saveHumanId } from "./env";
 import { setMockSink } from "./api";
 import { MOCK_LAN_URL } from "./mock";
@@ -37,6 +38,12 @@ export function App({ mockStepMs }: { mockStepMs?: number } = {}) {
   const [showLlm, setShowLlm] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
   const path = defaultPath(state.files, selected);
+  // Coarse clock for elapsed / "2m ago" labels.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 15_000);
+    return () => clearInterval(t);
+  }, []);
 
   useEffect(() => {
     if (mock) {
@@ -77,7 +84,7 @@ export function App({ mockStepMs }: { mockStepMs?: number } = {}) {
 
   return (
     <TooltipProvider>
-      <div className="grid h-full grid-cols-[56px_1fr] bg-background">
+      <div className="grid h-full grid-cols-[56px_minmax(0,1fr)] bg-background">
         <Rail humanId={humanId} />
         <div className="grid min-h-0 grid-rows-[56px_1fr]">
           <TopBar state={state} humanId={humanId} onHumanId={onHumanId} qrUrl={mock ? MOCK_LAN_URL : lanUrl("/m")} />
@@ -116,8 +123,20 @@ export function App({ mockStepMs }: { mockStepMs?: number } = {}) {
                           intent={currentIntentOf(state, a.agentId)}
                           actions={state.actions[a.agentId] ?? []}
                           viewer={humanId}
+                          meta={state.agentMeta[a.agentId]}
+                          files={filesOfAgent(state, a.agentId)}
+                          testsRunning={Boolean(state.tests.running)}
+                          now={now}
                         />
                       ))}
+                      <ProjectActivity
+                        state={state}
+                        now={now}
+                        onShowAll={() => {
+                          setMain("activity");
+                          setSub("feed");
+                        }}
+                      />
                     </div>
                   </ScrollArea>
                 </TabsContent>
