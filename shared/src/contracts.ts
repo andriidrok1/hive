@@ -165,8 +165,9 @@ export interface ToolArgs {
   list_files: Record<string, never>;
   read_file: { path: string; startLine?: number; endLine?: number };
   declare_intent: IntentInput;
-  edit_region: { intentId: IntentId; path: string; oldText: string; newText: string };
-  create_file: { intentId: IntentId; path: string; content: string };
+  // intentId is required by the server in `hive` mode (NO_INTENT otherwise) and ignored in naive/isolated.
+  edit_region: { intentId?: IntentId; path: string; oldText: string; newText: string };
+  create_file: { intentId?: IntentId; path: string; content: string };
   finish_intent: { intentId: IntentId };
   run_command: { cmd: string; timeoutSec?: number };
   run_tests: { filter?: string };
@@ -242,7 +243,7 @@ export interface Runner {
 }
 
 export interface CulpritVariant {
-  label: string; // "green+A1", "all-B1"
+  label: string; // "green+A1", "all-B1" (ASCII plus/hyphen only)
   applied: IntentId[];
   ok: boolean;
   applyError?: string; // patch did not apply alone

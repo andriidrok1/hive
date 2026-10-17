@@ -20,7 +20,7 @@ The in-memory truth of the shared project: files in a Yjs document, a project-wi
 
 - `ydoc = new Y.Doc({ gc: false })`, `files = ydoc.getMap<Y.Text>("files")`.
 - `loadFiles` fills the map, rev stays 0, emits nothing.
-- `rev` increments by 1 on every successful `editRegion`, `createFile`, `humanReplaceFile`, and on every Yjs update that did not originate from this class (human typing in the web editor via y-websocket). Use a transaction origin (`"hive"`) for own writes and observe `ydoc.on("afterTransaction")` for foreign ones, attributing them to the awareness user if known, else `"human"`.
+- `rev` increments by 1 on every successful `editRegion`, `createFile`, `humanReplaceFile`, and on every Yjs update that did not originate from this class (human typing in the web editor). Use a transaction origin (`"hive"`) for own writes and observe `ydoc.on("afterTransaction")` for foreign ones, attributing them via the `resolveActor(origin)` option (default returns `"human"`; brief 03 supplies one backed by awareness). Debounce foreign changes per file by 300 ms so a typing human produces one `onChange` per pause, not per keystroke.
 - Per-file rev: the rev of the last change to that file.
 - `editRegion`: read the latest text; count exact occurrences of `oldText`; 0 → `OLD_TEXT_NOT_FOUND` with `current`; >1 → `OLD_TEXT_AMBIGUOUS`; 1 → apply as Y.Text delete+insert at that index inside one transaction (do not replace the whole text, so concurrent human typing elsewhere survives). Return `added`/`removed` line counts computed with `diff.diffLines`.
 - `createFile` fails with `BAD_ARGS` if the path exists or is not a relative POSIX path inside the project.
@@ -49,7 +49,7 @@ The in-memory truth of the shared project: files in a Yjs document, a project-wi
 8. `createFile` happy path and duplicate path → `BAD_ARGS`.
 9. `ReadLog.readersOf("src/checkout.ts", "calculateTotal")` returns only agents whose read included that symbol, with their latest rev.
 10. History: intent A edits `calculateTotal`, intent B edits `applyTax` in between A's two edits; applying `finishIntent(A).edits` one by one with `diff.applyPatch` to the green snapshot reproduces A's change only (B's absent); same for B; applying A's then B's edits reproduces the current state.
-13. Export a helper `applyEdits(files: Record<string,string>, edits: ChangeSet["edits"]): { files } | { error: { path: string; index: number } }` (brief 04's culprit finder uses it), with a test where an edit fails to apply.
+13. Export `applyEdits` exactly as in CONTRACTS (uses `diff.applyPatch(text, patch, { fuzzFactor: 2 })`), with tests: (a) an edit fails to apply → `{ ok: false, path, index }`; (b) two intents editing adjacent lines (within 3 lines of each other) of the same file: each intent's edits still apply alone on the green snapshot.
 11. `changeSetsSince(greenRev)` returns change sets in `endRev` order.
 12. `saveSnapshot(true)` then more edits → `lastGreen().files` unchanged by later edits.
 

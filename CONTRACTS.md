@@ -64,7 +64,9 @@ All in `@hive/server`. Names below are the exported API each owner must provide.
 
 ```ts
 class ProjectStore {
-  constructor(opts?: { onEvent?: (e: FeedEventBody) => void })
+  // resolveActor maps a foreign Yjs transaction origin to an actor id; default () => "human".
+  // The ws layer (brief 03) passes one that looks the origin up in awareness.
+  constructor(opts?: { onEvent?: (e: FeedEventBody) => void; resolveActor?: (origin: unknown) => string })
   loadFiles(files: Record<string, string>): void          // initial load, rev stays 0
   get rev(): Rev
   listFiles(): FileInfo[]
@@ -93,6 +95,8 @@ class History {
   lastGreen(): Snapshot | undefined
   changeSetsSince(rev: Rev): ChangeSet[]
 }
+// Applies each patch in order with diff.applyPatch(text, patch, { fuzzFactor: 2 }): a later patch's context
+// may include neighbouring edits by other intents, so exact-context matching would fail on adjacent edits.
 function applyEdits(files: Record<string, string>, edits: ChangeSet["edits"]): { ok: true; files: Record<string, string> } | { ok: false; path: string; index: number }
 ```
 
@@ -109,7 +113,9 @@ class IntentRegistry {
   get(id: IntentId): Intent | undefined
   list(): Intent[]
   setStatus(id: IntentId, status: IntentStatus): void
-  canEdit(agentId: AgentId, intentId: IntentId): { ok: true } | { ok: false; code: "NO_INTENT" | "INTENT_NOT_APPROVED" | "NOT_YOUR_INTENT" }
+  canEdit(agentId: AgentId, intentId: IntentId): { ok: true } | { ok: false; code: "NO_INTENT" | "INTENT_NOT_APPROVED" | "NOT_YOUR_INTENT" } // ok for approved | in_progress
+  // setStatus to done | verified | cancelled | failed also re-evaluates intents stuck in `conflict`
+  // because of this one: if no other active conflict remains, they become `approved` (emit intent_status).
   humanEditOutput(humanId: HumanId, intentId: IntentId, newOutput: string): void // contract change -> briefings
   resolveConflict(humanId: HumanId, keepIntentId: IntentId, cancelIntentId: IntentId): void
 }
@@ -124,7 +130,12 @@ class ChangeWatcher {
   constructor(deps: { llm: LLM; graph: CallGraph; reads: ReadLog; intents: IntentRegistry; briefings: BriefingQueue; onEvent: (e: FeedEventBody) => void; mode: HiveMode })
   onEdit(change: { path: string; rev: Rev; actor: string; intentId?: IntentId; before: string; after: string }): Promise<void> // symbol diff + 1-line meaning + route briefings; no-op in naive/isolated
 }
-class Mailbox { ask(from, to, about, question): AgentMessage | { error: "EXCHANGE_LIMIT" }; reply(from, messageId, text): AgentMessage | { error: ... }; forHumans(): AgentMessage[] }
+class Mailbox {
+  constructor(deps: { briefings: BriefingQueue; onEvent: (e: FeedEventBody) => void })
+  ask(from: AgentId | HumanId, to: AgentId, about: string, question: string): AgentMessage | { error: "EXCHANGE_LIMIT" }
+  reply(from: AgentId | HumanId, messageId: string, text: string): AgentMessage | { error: "NOT_FOUND" | "EXCHANGE_LIMIT" }
+  forHumans(): AgentMessage[]
+}
 class OpenAILLM implements LLM { constructor(opts: { apiKey: string; model: string }) }
 class FakeLLM implements LLM { constructor(responder: (system: string, user: string) => unknown) }
 ```
@@ -136,7 +147,10 @@ class LocalRunner implements Runner { constructor(opts: { templateDir: string /*
 class FreestyleRunner implements Runner { constructor(opts: { apiKey: string; baseSnapshotId: string; maxParallel?: number }) }
 async function prepareBaseSnapshot(opts): Promise<string>     // script: npm run -w @hive/server runner:prepare
 class CulpritFinder { constructor(runner: Runner, maxParallel = 8); find(green: Snapshot, changeSets: ChangeSet[], onVariant?: (v: CulpritVariant) => void): Promise<CulpritReport> }
-class TestOrchestrator { constructor(deps); onIntentFinished(intentId): Promise<void> } // snapshot after 1s quiet -> check -> tests -> green or culprit search -> briefings
+class TestOrchestrator {
+  constructor(deps: { store: ProjectStore; history: History; intents: IntentRegistry; briefings: BriefingQueue; reads: ReadLog; graph: CallGraph; runner: Runner; culprit: CulpritFinder; onEvent: (e: FeedEventBody) => void; mode: HiveMode })
+  onIntentFinished(intentId: IntentId): Promise<void> // snapshot after 1s quiet -> check -> tests -> green or culprit search -> briefings
+}
 ```
 
 ### api and agents (brief 03)
@@ -161,7 +175,8 @@ Per-tool rules:
 - `read_file` records a read (`ReadLog.record`) with the symbols overlapping the returned line range.
 - `edit_region` and `create_file`: in `hive` mode require `canEdit` ok and no `unackedRequired` briefings (`UNACKED_BRIEFINGS`). In `naive` and `isolated` modes intents are not required.
 - `edit_region` replaces exactly one occurrence of `oldText` in the latest content. Zero matches → `OLD_TEXT_NOT_FOUND` with `error.current` = fresh file content. More than one → `OLD_TEXT_AMBIGUOUS`.
-- `declare_intent` sets status `approved` or `conflict`. An intent in `conflict` cannot be edited until a human resolves it or the other intent is cancelled/finished.
+- `declare_intent` sets status `approved` or `conflict`, and calls `history.beginIntent(intent)`. An intent in `conflict` cannot be edited until a human resolves it or the other intent is cancelled/finished (then the registry re-approves it, see coord).
+- The first successful `edit_region`/`create_file` under an intent moves it to `in_progress`.
 - `finish_intent` sets `done`, closes the change set, triggers `TestOrchestrator`.
 - `run_command` and `run_tests` run on a snapshot of the current files via the runner.
 - `ask_agent`: max 3 exchanges per thread; the 4th returns `EXCHANGE_LIMIT` and the thread goes to humans.
@@ -184,7 +199,7 @@ Per-tool rules:
 ### WebSockets
 
 - `ws://localhost:4317/ws/feed`: server sends `FeedEvent` JSON, one per message. On connect, the client then calls `GET /api/state`.
-- `ws://localhost:4317/yjs/project`: y-websocket sync of `ProjectStore.ydoc`. One `Y.Map<Y.Text>` named `files`, keyed by path. Awareness carries `{ user: { name, color, kind: "human" | "agent" } }`. Agents do not use Yjs directly: their edits go through tools and the server writes them into the same doc, so the web sees them live.
+- `ws://localhost:4317/yjs/project`: Yjs sync of `ProjectStore.ydoc` (the **main** store; in isolated mode agent copies are not exposed). **Implemented by hand** on the server with `y-protocols/sync` + `y-protocols/awareness` over `@fastify/websocket` (message type 0 = sync, 1 = awareness, same wire format as y-websocket, so the stock `WebsocketProvider` client works). Do not use `@y/websocket-server`: it bundles its own yjs 14 and cannot bind an external document. One `Y.Map<Y.Text>` named `files`, keyed by path. Awareness carries `{ user: { name, color, kind: "human" | "agent" } }`. Agents do not use Yjs directly: their edits go through tools and the server writes them into the same doc, so the web sees them live.
 
 ## Modes
 
@@ -195,6 +210,7 @@ Per-tool rules:
 ## Agent loop rules (brief 05)
 
 - OpenAI Chat Completions with tools, model `HIVE_MODEL_AGENT`, `reasoning_effort: "low"`, `parallel_tool_calls: false`.
+- Two cancellation channels: `signal` (stop for good; once aborted the run ends with `stopped`) and `interrupt: { current(): AbortSignal }` (urgent human note; the loop asks for a fresh signal before **every** model call, so after one interruption the next call proceeds). The AgentManager owns both controllers and replaces the interrupt controller after each use.
 - Each tool result message content = JSON of `ToolResponse`. If `briefings` is non-empty, the loop also appends them as readable text under `HIVE BRIEFINGS:` at the end of the tool result, so the model cannot miss them.
 - If `control` is `pause`, the loop waits and polls `/control`; if `stop`, it ends.
 - Budget per agent run: 40 tool calls, 15 minutes, 400k tokens. Logs `llm_call` timing for each call.
@@ -202,7 +218,7 @@ Per-tool rules:
 
 ## Feed events
 
-See `FeedEvent` in `contracts.ts`. Every server module emits through one `emit(body)` function that adds `id` (monotonic) and `ts`, keeps the last 200 in memory, and broadcasts on `/ws/feed`.
+See `FeedEvent` in `contracts.ts`. Every server module emits through one `emit(body)` function that adds `id` (monotonic) and `ts`, keeps the last 200 in memory, and broadcasts on `/ws/feed`. Anything that needs the full history of a run (the bench counters) must subscribe to `/ws/feed` for the whole run; `recentEvents` in `/api/state` is a tail, not a log.
 
 ## Demo app (brief 07)
 

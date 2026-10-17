@@ -31,7 +31,7 @@ Input: green snapshot G, change sets S1..Sn (n ≤ 6; if more, take the last 6).
 2. Run all variants in parallel through the runner (respect `maxParallel`), call `onVariant` as each finishes.
 3. Decide:
    - exactly one i with `All−Si` green and `G+Si` red → `single [Si]`;
-   - every `G+Si` green, `All` red, and some j,k with `G+Sj+Sk` red (run pairs only among suspects, max 6 pair runs) → `pair [Sj, Sk]`;
+   - every `G+Si` green, `All` red, and some j,k with `G+Sj+Sk` red → `pair [Sj, Sk]`; run pair variants only when n ≤ 4 (≤ 6 pairs), otherwise report `unknown`;
    - patch dependency prevented isolation → `dependent`;
    - else `unknown` with all suspects.
 

@@ -42,7 +42,9 @@ Order:
 8. Contradiction: A declares `calculateTotal` output "returns total WITH tax included"; B has active intent on `applyTax` "multiplies calculateTotal() by tax rate"; FakeLLM returns conflict → both get `intent_conflict`, status conflict.
 9. No contradiction when FakeLLM says false → approved.
 10. Dependents: agent B read `calculateTotal` at rev 2; A declares a change to it → B gets `intent_declared` with requiresAck.
-11. `canEdit`: wrong owner, not approved, unknown id.
+11. `canEdit`: wrong owner, not approved, unknown id; ok for `approved` and `in_progress`.
+11b. Re-approval: A and B conflict (`same_target`); `setStatus(A, "cancelled")` → B becomes `approved` and an `intent_status` event is emitted. Same when A goes `done`. If B also conflicts with a still-active C, B stays `conflict`.
+11c. `Mailbox` constructed with `{ briefings, onEvent }` delivers each message as a `message` briefing to the recipient and emits `message_sent`.
 12. ChangeWatcher: rename `calculateTotal` → `calcTotal` by A; B read it earlier and calls it → B gets `symbol_changed` with `yourUsages` pointing at the call line; A gets nothing.
 13. ChangeWatcher ignores a comment-only change.
 14. Mailbox: 3 exchanges ok, 4th → `EXCHANGE_LIMIT`, thread in `forHumans()`.

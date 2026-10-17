@@ -21,7 +21,8 @@ export interface RunOptions {
   maxToolCalls?: number;           // 40
   maxMs?: number;                  // 15 min
   maxTokens?: number;              // 400k
-  signal?: AbortSignal;            // urgent human note aborts current model call
+  signal?: AbortSignal;            // stop for good: once aborted the run ends with status "stopped"
+  interrupt?: { current(): AbortSignal }; // urgent human note: fetched fresh before EVERY model call; an aborted one only cancels that call
   onEvent?: (e: { type: "llm_call" | "tool_call" | "status"; [k: string]: unknown }) => void;
   mode?: HiveMode;                 // "naive"/"isolated" use a prompt without intents
 }
@@ -44,7 +45,7 @@ HIVE BRIEFINGS (you must handle these before editing again):
   -> call ack_briefing with adapted | not_relevant | ask
 ```
 5. `control: "pause"` → poll a cheap tool (`list_files`) every 2s until `run` or `stop`; `stop` → status stopped.
-6. Abort from `signal` mid-call → drop that model call, re-run the step (the urgent note will arrive as a briefing on the next tool call; to make it immediate, the loop calls `list_files` once after an abort).
+6. Before each model call combine `signal` and `interrupt.current()` with `AbortSignal.any([...])`. If the call aborts and `signal.aborted` → status `stopped`. If only the interrupt fired → call `list_files` once to collect the urgent note as a briefing, then re-run the step with a fresh `interrupt.current()`. Never reuse an aborted signal.
 7. Budgets → status `budget`.
 
 ## System prompt (hive mode), keep it under 350 words
@@ -69,7 +70,7 @@ Naive/isolated mode prompt: same minus intents, acks and asking.
 4. Invalid JSON tool args produce an error tool message and the loop continues.
 5. `control: "pause"` then `run`: the loop waits and resumes; `stop` ends with status stopped.
 6. Budget: maxToolCalls 3 → status budget after 3 tool calls.
-7. Abort signal during a model call → the call is retried, no crash.
+7. Interrupt during a model call → `list_files` is called, the step is retried with a new signal, no crash; `signal` abort → status `stopped` and no further model calls.
 8. Token and ms accounting summed from usage fields.
 9. `httpClient` posts to the right URL with the right body (mock `fetch`).
 10. `systemPrompt("naive", ...)` does not mention intents.

@@ -16,7 +16,6 @@
     "yjs": "^13.6.33",
     "y-protocols": "^1.0.7",
     "y-websocket": "^3.1.0",
-    "@y/websocket-server": "^0.1.5",
     "diff": "^9.0.0",
     "typescript": "~5.9.3",
     "fastify": "^5.12.7",
@@ -30,7 +29,6 @@
     "vitest": "^5.0.5",
     "tsx": "^4.23.15",
     "@types/node": "^26.6.5",
-    "@types/ws": "^8.18.2",
-    "@types/diff": "^7.0.2"
+    "@types/ws": "^8.18.2"
   }
 }

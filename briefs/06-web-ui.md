@@ -9,12 +9,12 @@ The screen judges watch and humans use: one live shared file like Google Docs, w
 ## Layout (desktop, 1440×900 target, dark)
 
 - Top bar: "Hive", mode badge (`hive`/`naive`/`isolated`), project rev, last green rev, counters: briefings sent, plan changes (acks `adapted`), conflicts caught before code, culprit searches.
-- Left (60%): file tabs + CodeMirror editor bound to `ws://localhost:4317/yjs/project` (`Y.Map<Y.Text>` `files`, y-codemirror.next with awareness cursors). Humans can type. Intent decorations: for each active intent, highlight the target symbol's line range (ranges from `GET /api/files/:path` symbols or recompute with a small client-side regex for `function name(`), with a label widget "M1 · agent-masha: add state tax → returns total + tax". Colors: grey declared, agent color in progress, green verified, red conflict/failed.
+- Left (60%): file tabs + CodeMirror editor bound to `ws://localhost:4317/yjs/project` (`Y.Map<Y.Text>` `files`, y-codemirror.next with awareness cursors). Humans can type. Intent decorations: for each active intent, highlight the target symbol's line range (ranges from `GET /api/files/<path>` symbols, refetched on each `edit_applied` for that file, or recompute with a small client-side regex for `function name(`), with a label widget "M1 · agent-masha: add state tax → returns total + tax". Colors: grey declared, agent color in progress, green verified, red conflict/failed.
 - Right top: agent cards: human name, agent id, status dot, current task, current intent, last 3 actions, buttons Note, Urgent, Pause/Resume, Stop. Note opens a one-line input.
 - Right bottom: feed (newest on top), one line per `FeedEvent`, color by type, briefings expandable to show summary and ack.
 - Tabs over the right column: Feed | History | Culprit | Contracts.
   - History: change sets as versions (who, what, +/−, files), click shows the patch.
-  - Culprit: grid of variant cards (`green+A1`, `all−M1`...) turning green/red live from `culprit_variant_result`, then a banner with the report ("A1 alone ok, M1 alone ok, together red → conflict between agent-andrii and agent-masha").
+  - Culprit: grid of variant cards keyed by the server's `label` (`green+A1`, `all-M1`, ASCII only) turning green/red live from `culprit_variant_result`, then a banner with the report ("A1 alone ok, M1 alone ok, together red: conflict between agent-andrii and agent-masha").
   - Contracts: list of intents with outputs, editable by humans (`POST /api/intents/:id/output`), conflict resolution buttons (`/api/intents/resolve`).
 - "Start agent" dialog: agentId, humanId, task → `POST /api/agents`.
 - A QR code (top right) linking to `/m` on the machine's LAN IP.
