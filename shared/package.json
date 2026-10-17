@@ -1,0 +1,11 @@
+{
+  "name": "@hive/shared",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "./src/contracts.ts",
+  "types": "./src/contracts.ts",
+  "exports": { ".": "./src/contracts.ts" },
+  "scripts": { "typecheck": "tsc -p . --noEmit" },
+  "devDependencies": { "typescript": "^5.9.0" }
+}
