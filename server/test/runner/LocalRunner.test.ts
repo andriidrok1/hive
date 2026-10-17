@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { LocalRunner } from "../../src/runner/LocalRunner.js";
+import { failureMessage } from "../../src/runner/util.js";
 import { DEMO_APP_FILES, demoAppFiles } from "./fixtures/demoApp.js";
 
 const runner = new LocalRunner({ templateDir: "demo-app" });
@@ -25,8 +26,22 @@ describe("LocalRunner", () => {
     expect(r.passed).toBeGreaterThan(0);
     const names = r.failures.map((f) => f.name);
     expect(names.some((n) => n.includes("calculateTotal"))).toBe(true);
-    expect(r.failures[0]!.message.length).toBeGreaterThan(0);
+    expect(names.every((n) => n.startsWith("test/checkout.test.ts: "))).toBe(true);
+    for (const f of r.failures) {
+      // one meaningful line, no stack frames, bounded
+      expect(f.message).toMatch(/^AssertionError: expected \d+ to be \d+/);
+      expect(f.message).not.toContain("\n");
+      expect(f.message).not.toMatch(/\bat /);
+      expect(f.message.length).toBeLessThanOrEqual(300);
+    }
   }, 60_000);
+
+  it("failureMessage keeps the first meaningful line only", () => {
+    expect(failureMessage("AssertionError: expected 9000 to be 9653 // Object.is equality\n\n- Expected\n+ Received\n\n- 9653\n+ 9000\n\n ❯ test/checkout.test.ts:22:70\n    at foo (x.ts:1:1)")).toBe("AssertionError: expected 9000 to be 9653 // Object.is equality");
+    expect(failureMessage("\n   at a (b.ts:1:1)\n  ReferenceError:   items is   not defined\n    at c")).toBe("ReferenceError: items is not defined");
+    expect(failureMessage("", "test file failed to run")).toBe("test file failed to run");
+    expect(failureMessage("x".repeat(500)).length).toBe(300);
+  });
 
   it("2b. filter runs only matching tests", async () => {
     const r = await runner.runTests(DEMO_APP_FILES, { filter: "formatPrice" });
