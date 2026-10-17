@@ -32,7 +32,7 @@ export interface HistoryLike {
 export interface IntentsLike {
   get(id: IntentId): Intent | undefined;
   list(): Intent[];
-  setStatus(id: IntentId, status: IntentStatus): void;
+  setStatus(id: IntentId, status: IntentStatus, opts?: { rev?: Rev }): void;
 }
 export interface BriefingsLike {
   push(b: Omit<Briefing, "id" | "createdAt">): Briefing;
@@ -101,7 +101,7 @@ export class TestOrchestrator {
       );
       onEvent({ type: "test_run_finished", runId: checkRun, rev, result: checkResult });
       if (!checkResult.ok) {
-        intents.setStatus(intentId, "failed");
+        intents.setStatus(intentId, "failed", { rev });
         this.briefVerificationFailed(intent, checkResult);
         return;
       }
@@ -114,7 +114,7 @@ export class TestOrchestrator {
 
     if (result.ok) {
       history.saveSnapshot(true);
-      if (intent) intents.setStatus(intentId, "verified");
+      if (intent) intents.setStatus(intentId, "verified", { rev });
       return;
     }
 
@@ -124,7 +124,7 @@ export class TestOrchestrator {
     const suspects = history.changeSetsSince(green.rev);
     if (suspects.length === 0) {
       if (intent) {
-        intents.setStatus(intentId, "failed");
+        intents.setStatus(intentId, "failed", { rev });
         this.push(intent.agentId, "culprit", `Tests are red after ${intentId} finished and no change set explains it; your intent is marked failed.`, {
           intentId,
           file: intent.target.file,
@@ -139,16 +139,16 @@ export class TestOrchestrator {
     onEvent({ type: "culprit_search_started", searchId, suspects: suspects.map((s) => s.id) });
     const report = await this.deps.culprit.find(green, suspects, (variant) => onEvent({ type: "culprit_variant_result", searchId, variant }));
     onEvent({ type: "culprit_found", searchId, report });
-    this.applyReport(report, suspects, result, intentId);
+    this.applyReport(report, suspects, result, intentId, rev);
   }
 
-  private applyReport(report: CulpritReport, suspects: ChangeSet[], result: TestResult, finishedId: IntentId): void {
+  private applyReport(report: CulpritReport, suspects: ChangeSet[], result: TestResult, finishedId: IntentId, rev: Rev): void {
     const { intents } = this.deps;
     const byId = new Map(suspects.map((s) => [s.id, s]));
     const culpritIds = report.culprits.length > 0 ? report.culprits : [finishedId];
     for (const id of culpritIds) {
       const st = intents.get(id)?.status;
-      if (st === "done" || st === "verified" || st === "in_progress" || st === "approved") intents.setStatus(id, "failed");
+      if (st === "done" || st === "verified" || st === "in_progress" || st === "approved") intents.setStatus(id, "failed", { rev });
     }
     const failing = result.failures.slice(0, 10);
     const describe = (id: IntentId): string => {

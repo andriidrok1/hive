@@ -89,7 +89,7 @@ export class FreestyleRunner implements Runner {
         t.execMs = durationMs;
         const timedOut = res.statusCode === null || res.statusCode === undefined;
         return {
-          exitCode: timedOut ? 124 : res.statusCode,
+          exitCode: res.statusCode ?? 124,
           stdout: truncate(res.stdout),
           stderr: truncate(timedOut ? `${res.stderr ?? ""}\n[killed: timeout after ${timeoutMs / 1000}s]` : res.stderr),
           durationMs,

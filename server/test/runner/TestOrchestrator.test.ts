@@ -1,9 +1,20 @@
 import type { Briefing, ChangeSet, FeedEventBody, Intent, IntentStatus, Rev, Runner, Snapshot, TestResult } from "@hive/shared";
 import { describe, expect, it } from "vitest";
+import { History, ProjectStore, ReadLog } from "../../src/core/index.js";
+import { BriefingQueue, CallGraph, IntentRegistry } from "../../src/coord/index.js";
 import { CulpritFinder } from "../../src/runner/CulpritFinder.js";
 import { checkTestSource, CHECK_TEST_PATH, TestOrchestrator, type TestOrchestratorDeps } from "../../src/runner/TestOrchestrator.js";
 import { applyAll, breakDiscount, harmlessFormatChange, taxInCalculateTotal, taxLineInOrderSummary } from "./fixtures/changeSets.js";
 import { DEMO_APP_FILES } from "./fixtures/demoApp.js";
+
+// Compile-time check: the real core/coord classes satisfy the orchestrator's structural deps.
+type Satisfies<T extends U, U> = T;
+type _Store = Satisfies<ProjectStore, TestOrchestratorDeps["store"]>;
+type _History = Satisfies<History, TestOrchestratorDeps["history"]>;
+type _Intents = Satisfies<IntentRegistry, TestOrchestratorDeps["intents"]>;
+type _Briefings = Satisfies<BriefingQueue, TestOrchestratorDeps["briefings"]>;
+type _Reads = Satisfies<ReadLog, TestOrchestratorDeps["reads"]>;
+type _Graph = Satisfies<CallGraph, TestOrchestratorDeps["graph"]>;
 
 // ---------- fakes ----------
 
