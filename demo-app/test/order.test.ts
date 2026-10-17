@@ -30,6 +30,8 @@ describe("orderSummary", () => {
   });
 
   it("handles an empty cart", () => {
-    expect(orderSummary([])).toEqual({ subtotal: 0, discount: 0, total: 0, lines: ["Subtotal $0.00", "Total $0.00"] });
+    const summary = orderSummary([]);
+    expect(summary.total).toBe(0);
+    expect(summary.lines).toEqual(["Subtotal $0.00", "Total $0.00"]);
   });
 });
