@@ -32,6 +32,7 @@ describe("ChatBox", () => {
     fireEvent.click(screen.getByRole("button", { name: /Sample task/ }));
     expect(box.value).toBe(ANDRII_SAMPLE_TASK);
     expect(box.value).toContain('"Discount -$5.64.6999"');
+    expect(box.value).toContain("where x.xx is the DISCOUNT AMOUNT = subtotalCents - applyDiscount(subtotalCents, promo), rounded to whole cents");
     expect(document.activeElement).toBe(box);
     expect(fetchMock).not.toHaveBeenCalled();
   });
