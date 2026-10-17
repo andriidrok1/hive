@@ -14,7 +14,7 @@ const log = fs.createWriteStream(out, { flags: "a" });
 
 const t0 = Date.now();
 const line = (s) => {
-  const t = new Date().toISOString().slice(11, 19);
+  const t = new Date().toLocaleTimeString("en-GB", { hour12: false });
   const rel = ((Date.now() - t0) / 1000).toFixed(1).padStart(6);
   const msg = `${t} ${rel}s  ${s}`;
   console.log(msg);
