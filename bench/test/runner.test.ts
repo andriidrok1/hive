@@ -9,7 +9,7 @@ type Listener = (ev: { data?: unknown }) => void;
 
 /** A fake Hive server: records requests, drives agents to "done" on the third poll, pushes feed events. */
 class FakeServer {
-  calls: { method: string; path: string; body?: unknown }[] = [];
+  calls: { method: string; path: string; body?: unknown; rawBody?: string }[] = [];
   polls = 0;
   sockets: { listeners: Record<string, Listener[]>; closed: boolean }[] = [];
   agents = new Map<string, string>();
@@ -19,7 +19,7 @@ class FakeServer {
     const path = new URL(url).pathname;
     const method = init?.method ?? "GET";
     const body = init?.body ? JSON.parse(init.body) : undefined;
-    this.calls.push({ method, path, body });
+    this.calls.push({ method, path, body, ...(init?.body !== undefined ? { rawBody: init.body } : {}) });
     const json = (status: number, data: unknown) => ({ ok: status < 400, status, text: async () => JSON.stringify(data) });
     if (path === "/api/reset") {
       this.mode = body.mode;
@@ -172,6 +172,9 @@ describe("runScenario", () => {
     expect(paths.indexOf("POST /api/merge")).toBeLessThan(paths.indexOf("POST /api/test"));
     expect(row.mergeOk).toBe(true);
     expect(row.success).toBe(true);
+    // every POST carries a JSON body, Fastify rejects an empty one with FST_ERR_CTP_EMPTY_JSON_BODY
+    for (const c of server.calls) if (c.method === "POST") expect(c.rawBody, c.path).toMatch(/^\{/);
+    expect(server.calls.find((c) => c.path === "/api/merge")!.body).toEqual({});
   });
 
   it("records a timeout instead of throwing", async () => {
