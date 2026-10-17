@@ -84,7 +84,8 @@ describe("runAgent: briefings (test 3)", () => {
     const second = ai.requests[1]!.body;
     const content = lastToolMessages(second).at(-1)!;
     const [json, block] = content.split("\n\nHIVE BRIEFINGS");
-    expect(JSON.parse(json!).briefings[0].id).toBe("br_7");
+    expect(JSON.parse(json!).briefings).toEqual(["br_7"]); // ids only in the JSON; details live in the text block
+    expect(json).not.toContain("WITH tax");
     expect(block).toBeDefined();
     expect(content).toContain("HIVE BRIEFINGS (you must handle these before editing again):");
     expect(content).toContain("[br_7] symbol_changed from agent-masha");
@@ -443,8 +444,46 @@ describe("runAgent: red-tests nudges (up to 3) and unacked nudge", () => {
     expect(ai2.requests).toHaveLength(6);
   });
 
-  it("default token budget is 300k", () => {
-    expect(DEFAULTS.maxTokens).toBe(300_000);
+  it("default token budget is 600k", () => {
+    expect(DEFAULTS.maxTokens).toBe(600_000);
+  });
+
+  it("failing tests in my own files keep the nudges coming even without edits, with the YOUR files text", async () => {
+    const mineRed = { ok: false, passed: 5, failed: 1, failures: [{ name: "src/checkout.test.ts > calculateTotal > applies promo", message: "expected 900 got 1000" }], durationMs: 5 };
+    const hive = new FakeHive((tool) => (tool === "run_tests" ? { data: mineRed } : undefined));
+    const ai = new FakeOpenAI([
+      { tool: "edit_region", args: { intentId: "A1", path: "src/checkout.ts", oldText: "a", newText: "b" } },
+      { tool: "run_tests", args: {} },
+      { text: "give up 1" },
+      { text: "give up 2" },
+      { text: "give up 3" },
+      { text: "give up 4" },
+    ]);
+    const res = await runAgent({ ...base, client: hive, openai: ai.asOpenAI() });
+    expect(res.status).toBe("done");
+    expect(res.finalMessage).toBe("give up 4");
+    expect(ai.requests).toHaveLength(6); // 3 nudges despite no edits in between
+    for (const i of [3, 4, 5]) {
+      expect(ai.requests[i]!.body.messages.at(-1)!.content).toBe(
+        "Hive: tests are still red (1 failed: src/checkout.test.ts > calculateTotal > applies promo). These failing tests are in YOUR files (src/checkout.ts): update the expectations to the new behavior.",
+      );
+    }
+  });
+
+  it("a declared symbol in the failure name also marks the test as mine", async () => {
+    const red1 = { ok: false, passed: 5, failed: 1, failures: [{ name: "applyDiscount > caps at subtotal", message: "expected 0 got -5" }], durationMs: 5 };
+    const hive = new FakeHive((tool) => (tool === "run_tests" ? { data: red1 } : undefined));
+    const ai = new FakeOpenAI([
+      { tool: "declare_intent", args: { target: { file: "src/promo.ts", symbol: "applyDiscount" }, action: "modify", what: "cap discount", input: "subtotal, promo", output: "cents >= 0" } },
+      { tool: "run_tests", args: {} },
+      { text: "done" },
+      { text: "done" },
+      { text: "done" },
+      { text: "done" },
+    ]);
+    await runAgent({ ...base, client: hive, openai: ai.asOpenAI() });
+    expect(ai.requests).toHaveLength(6);
+    expect(ai.requests[3]!.body.messages.at(-1)!.content).toContain("in YOUR files (src/promo.ts)");
   });
 
   it("low budget (fewer than 8 tool calls or 60 s left) -> no red nudge, final accepted", async () => {
@@ -671,6 +710,34 @@ describe("runAgent: NOT_OWNER twice on the same path", () => {
 });
 
 describe("runAgent: accounting (test 8)", () => {
+  it("cached prompt tokens do not count against the budget", async () => {
+    const ai = new FakeOpenAI([
+      {
+        onCall: async () => {
+          const c = completion(toolCallMessage("c1", "list_files", "{}"), [10_000, 20]);
+          c.usage!.prompt_tokens_details = { cached_tokens: 9_500 };
+          return c;
+        },
+      },
+      {
+        onCall: async () => {
+          const c = completion({ role: "assistant", content: "done", refusal: null }, [10_100, 10]);
+          c.usage!.prompt_tokens_details = { cached_tokens: 9_900 };
+          return c;
+        },
+      },
+    ]);
+    const events: AgentEvent[] = [];
+    const res = await runAgent({ ...base, client: new FakeHive(), openai: ai.asOpenAI(), maxTokens: 1_000, onEvent: (e) => events.push(e) });
+    expect(res.status).toBe("done"); // raw prompt tokens are 20k, uncached only 700
+    expect(res.tokensIn).toBe(700);
+    expect(res.tokensCached).toBe(19_400);
+    expect(events.filter((e) => e.type === "llm_call").map((e) => [e.tokensIn, e.tokensCached])).toEqual([
+      [500, 9_500],
+      [200, 9_900],
+    ]);
+  });
+
   it("sums tokens and ms from usage fields and reports them per call", async () => {
     const events: AgentEvent[] = [];
     const ai = new FakeOpenAI([
@@ -682,6 +749,7 @@ describe("runAgent: accounting (test 8)", () => {
     const res = await runAgent({ ...base, client: new FakeHive(), openai: ai.asOpenAI(), onEvent: (e) => events.push(e) });
     expect(res.tokensIn).toBe(750);
     expect(res.tokensOut).toBe(57);
+    expect(res.tokensCached).toBe(0);
     expect(res.ms).toBeGreaterThanOrEqual(0);
     expect(res.ms).toBeLessThanOrEqual(Date.now() - t0 + 5);
     const llm = events.filter((e) => e.type === "llm_call");

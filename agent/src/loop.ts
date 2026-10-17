@@ -33,8 +33,9 @@ export interface RunOptions {
 export interface RunResult {
   status: "done" | "stopped" | "budget" | "error";
   toolCalls: number;
-  tokensIn: number;
+  tokensIn: number; // uncached prompt tokens (prompt_tokens minus prompt_tokens_details.cached_tokens)
   tokensOut: number;
+  tokensCached: number; // cached prompt tokens, informational, not counted against maxTokens
   ms: number;
   finalMessage?: string;
   error?: string;
@@ -55,7 +56,7 @@ function rejectsReasoningEffort(e: unknown): boolean {
   const message = String((e as { message?: unknown }).message ?? "");
   return status === 400 && /reasoning_effort/i.test(message);
 }
-export const DEFAULTS = { maxToolCalls: 40, maxMs: 15 * 60_000, maxTokens: 300_000, pauseMs: 2000, conflictWaitMs: 90_000, conflictPollMs: 3_000 } as const;
+export const DEFAULTS = { maxToolCalls: 40, maxMs: 15 * 60_000, maxTokens: 600_000, pauseMs: 2000, conflictWaitMs: 90_000, conflictPollMs: 3_000 } as const;
 // Red-tests nudges repeat up to MAX_RED_NUDGES while at least NUDGE_MIN_TOOL_CALLS calls and NUDGE_MIN_MS remain,
 // and stop early once two consecutive nudges produced no edit_region/create_file call (the agent is spinning).
 export const MAX_RED_NUDGES = 3;
@@ -134,6 +135,7 @@ export async function runAgent(opts: RunOptions): Promise<RunResult> {
   let toolCalls = 0;
   let tokensIn = 0;
   let tokensOut = 0;
+  let tokensCached = 0;
   let step = 0;
   let lastRev: Rev = 0;
   // Briefings collected outside a tool message (pause polls, interrupt pick-up) go to the model as a user message.
@@ -148,6 +150,8 @@ export async function runAgent(opts: RunOptions): Promise<RunResult> {
   const myIntents = new Set<IntentId>();
   let nudges = 0;
   const notOwner = new Map<string, number>(); // NOT_OWNER count per path; the 2nd one earns a "stop editing" line
+  const myFiles = new Set<string>(); // files this agent declared a target in or edited this run
+  const mySymbols = new Map<string, string>(); // declared target symbol -> file
   let edits = 0; // successful edit_region/create_file calls
   let editsAtLastNudge = 0;
   let idleNudges = 0; // consecutive nudges after which no edit followed
@@ -182,11 +186,19 @@ export async function runAgent(opts: RunOptions): Promise<RunResult> {
     }
     if (tool === "run_tests" && r.data && typeof r.data === "object" && "ok" in r.data) lastTests = r.data as TestResult;
     if (tool === "ack_briefing") unacked.delete(String((args as { briefingId?: unknown }).briefingId));
-    if (tool === "edit_region" || tool === "create_file") edits += 1;
+    if (tool === "edit_region" || tool === "create_file") {
+      edits += 1;
+      const path = (args as { path?: unknown }).path;
+      if (typeof path === "string") myFiles.add(path);
+    }
     if (tool === "declare_intent" && r.data && typeof r.data === "object" && "intent" in r.data) {
       const d = r.data as DeclareIntentResult;
       if (d.intent?.id) myIntents.add(d.intent.id);
       const target = d.intent?.target ?? (args as { target?: { file: string; symbol: string } }).target;
+      if (target?.file) {
+        myFiles.add(target.file);
+        if (target.symbol) mySymbols.set(target.symbol, target.file);
+      }
       if (d.status === "conflict" && d.intent?.id) conflicting.set(d.intent.id, { file: target?.file ?? "", symbol: target?.symbol ?? "" });
       if (d.status === "approved" && target) {
         for (const [id, t] of conflicting) if (t.file === target.file && t.symbol === target.symbol) conflicting.delete(id);
@@ -228,15 +240,33 @@ export async function runAgent(opts: RunOptions): Promise<RunResult> {
     return false;
   }
 
+  // Files of mine that the current failures point at: by path, by "<stem>.test", by the file stem as a
+  // word, or by a symbol I declared. Empty when the failures look like someone else's area.
+  function myFailingFiles(): string[] {
+    if (!lastTests || lastTests.ok) return [];
+    const hits = new Set<string>();
+    const text = lastTests.failures.map((f) => `${f.name}\n${f.message}`).join("\n");
+    const esc = (x: string) => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    for (const file of myFiles) {
+      const stem = file.split("/").pop()?.replace(/\.[cm]?[jt]sx?$/, "") ?? "";
+      if (text.includes(file) || (stem && new RegExp(`\\b${esc(stem)}(\\.test)?\\b`).test(text))) hits.add(file);
+    }
+    for (const [symbol, file] of mySymbols) if (new RegExp(`\\b${esc(symbol)}\\b`).test(text)) hits.add(file);
+    return [...hits];
+  }
+
   // Called when the model answers without tool calls. Returns the nudge text, or null to accept the answer.
-  // Red tests: up to MAX_RED_NUDGES while the budget allows. Unacked-only: once.
+  // Red tests: up to MAX_RED_NUDGES while the budget allows; stops early when spinning unless the failing
+  // tests are in this agent's own files. Unacked-only: once.
   function nudgeFor(): string | null {
     const red = !!lastTests && !lastTests.ok;
     const budgetOk = maxToolCalls - toolCalls >= NUDGE_MIN_TOOL_CALLS && maxMs - elapsed() >= NUDGE_MIN_MS;
     if (nudges > 0) idleNudges = edits > editsAtLastNudge ? 0 : idleNudges + 1;
-    const spinning = idleNudges >= 2;
+    const mine = myFailingFiles();
+    const spinning = idleNudges >= 2 && mine.length === 0;
     const reasons: string[] = [];
-    if (red && budgetOk && !spinning && nudges < MAX_RED_NUDGES && lastTests) {
+    const redNudge = red && budgetOk && !spinning && nudges < MAX_RED_NUDGES && !!lastTests;
+    if (redNudge && lastTests) {
       const names = lastTests.failures.map((f) => f.name).slice(0, 8).join(", ");
       reasons.push(`tests are still red (${lastTests.failed} failed${names ? `: ${names}` : ""})`);
     }
@@ -244,9 +274,11 @@ export async function runAgent(opts: RunOptions): Promise<RunResult> {
     if (!reasons.length) return null;
     nudges += 1;
     editsAtLastNudge = edits;
-    const advice = red && budgetOk && !spinning
-      ? "You may still edit; if the failing tests belong to another agent's area, ask them and wait, otherwise fix now."
-      : "Call ack_briefing for each, then continue or finish.";
+    const advice = !redNudge
+      ? "Call ack_briefing for each, then continue or finish."
+      : mine.length
+        ? `These failing tests are in YOUR files (${mine.join(", ")}): update the expectations to the new behavior.`
+        : "You may still edit; if the failing tests belong to another agent's area, ask them and wait, otherwise fix now.";
     return `Hive: ${reasons.join(" / ")}. ${advice}`;
   }
 
@@ -254,7 +286,7 @@ export async function runAgent(opts: RunOptions): Promise<RunResult> {
   const emit = (e: AgentEvent) => onEvent?.({ agentId: opts.agentId, ...e });
   const finish = (status: RunResult["status"], extra: Partial<RunResult> = {}): RunResult => {
     emit({ type: "status", status, step });
-    return { status, toolCalls, tokensIn, tokensOut, ms: elapsed(), ...extra };
+    return { status, toolCalls, tokensIn, tokensOut, tokensCached, ms: elapsed(), ...extra };
   };
 
   // Out-of-band tool call (pause polling, interrupt pick-up). Returns the control value or null on failure.
@@ -383,11 +415,13 @@ export async function runAgent(opts: RunOptions): Promise<RunResult> {
     }
     const ms = Date.now() - t0;
     const usage = completion.usage;
-    const inTok = usage?.prompt_tokens ?? 0;
+    const cached = usage?.prompt_tokens_details?.cached_tokens ?? 0;
+    const inTok = Math.max(0, (usage?.prompt_tokens ?? 0) - cached);
     const outTok = usage?.completion_tokens ?? 0;
     tokensIn += inTok;
     tokensOut += outTok;
-    emit({ type: "llm_call", model, ms, tokensIn: inTok, tokensOut: outTok, step, reasoningEffort });
+    tokensCached += cached;
+    emit({ type: "llm_call", model, ms, tokensIn: inTok, tokensOut: outTok, tokensCached: cached, step, reasoningEffort });
 
     const choice = completion.choices[0];
     if (!choice) return finish("error", { error: "model returned no choices" });
@@ -416,7 +450,8 @@ export async function runAgent(opts: RunOptions): Promise<RunResult> {
     for (const call of calls) {
       toolCalls += 1;
       const response = await executeToolCall(call);
-      let content = JSON.stringify(response);
+      // The JSON carries only briefing ids; the readable block below has the details (no double cost).
+      let content = JSON.stringify({ ...response, briefings: response.briefings.map((b) => b.id) });
       if (response.briefings.length) content += `\n\n${formatBriefings(response.briefings)}`;
       messages.push({ role: "tool", tool_call_id: call.id, content });
       if (response.control !== "run") control = response.control;
