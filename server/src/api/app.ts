@@ -21,6 +21,8 @@ export interface BuildAppOptions {
   tools?: ToolHandlers;
   /** Pre-built Yjs hub (hive.ts creates it first so ProjectStore gets hub.resolveActor). */
   hub?: YjsHub;
+  /** Extra routes registered before app.ready() (hive.ts adds the optional preview site). */
+  extraRoutes?: (app: FastifyInstance) => void;
   logger?: boolean;
 }
 
@@ -55,6 +57,7 @@ export function buildApp(ctx: HiveContext, opts: BuildAppOptions = {}): BuiltApp
 
     registerHumanRoutes(app, ctx, tools);
     registerWs(app, ctx, hub);
+    opts.extraRoutes?.(app);
     await app.ready();
   })();
 

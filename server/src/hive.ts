@@ -4,13 +4,14 @@
 // Core, coord, runner and the agent loop (@hive/agent) are the real modules. Tests may swap the
 // TestOrchestrator through `modules` (api/fakes.ts) to keep runs fast and deterministic.
 import { readdirSync, readFileSync, statSync } from "node:fs";
+import type { FastifyInstance } from "fastify";
 import { join, relative, sep } from "node:path";
 import type { FeedEventBody, HiveMode, LLM, Runner } from "@hive/shared";
 import { runAgent as realRunAgent } from "@hive/agent";
 import { createEmitter } from "./emit.js";
 import { History, ProjectStore, ReadLog } from "./core/index.js";
 import { analyzeFile, BriefingQueue, CallGraph, ChangeWatcher, IntentRegistry, Mailbox } from "./coord/index.js";
-import { CulpritFinder, TestOrchestrator } from "./runner/index.js";
+import { CulpritFinder, makePreviewSite, previewSiteRoute, TestOrchestrator, type PreviewSite } from "./runner/index.js";
 import { buildApp, type BuiltApp } from "./api/app.js";
 import type {
   BriefingQueueLike,
@@ -54,6 +55,8 @@ export interface CreateHiveOptions {
   modules?: HiveModules;
   /** Passed to the real TestOrchestrator (quiet period before snapshotting, default 1000 ms). */
   orchestrator?: { quietMs?: number; maxQuietWaitMs?: number; maxParallel?: number };
+  /** Public preview site; default makePreviewSite(process.env) (undefined unless HIVE_PREVIEW_SITE=1). */
+  previewSite?: PreviewSite | null;
   /** Defaults to runAgent from @hive/agent; tests inject a scripted one. */
   runAgent?: RunAgentFn;
   model?: string;
@@ -71,6 +74,17 @@ export interface Hive {
 export function createHive(opts: CreateHiveOptions): Hive {
   const emitter = createEmitter();
   const hub = new YjsHub();
+  const site = opts.previewSite === undefined ? makePreviewSite(process.env) : (opts.previewSite ?? undefined);
+  let previewSiteUrl: string | undefined;
+  if (site) {
+    site.getUrl().then(
+      (url) => {
+        previewSiteUrl = url;
+        console.log(`[hive] preview site: ${url}`);
+      },
+      (err: unknown) => console.error("[hive] preview site failed:", err instanceof Error ? err.message : err),
+    );
+  }
   const emit: OnEvent = (e) => {
     emitter.emit(e);
   };
@@ -114,6 +128,10 @@ export function createHive(opts: CreateHiveOptions): Hive {
       });
     });
     history.saveSnapshot(true); // green baseline at rev 0
+    if (site) {
+      site.sync(store.allFiles());
+      store.onChange(() => site.sync(store.allFiles()));
+    }
 
     return {
       mode,
@@ -137,6 +155,7 @@ export function createHive(opts: CreateHiveOptions): Hive {
   const ctx: HiveContext = {
     deps: buildDeps(opts.mode),
     agents: undefined as unknown as AgentManager, // set right below
+    previewSiteUrl: () => previewSiteUrl,
     async reset(mode) {
       await agents.stopAll();
       emitter.clear();
@@ -175,7 +194,12 @@ export function createHive(opts: CreateHiveOptions): Hive {
   ctx.agents = agents;
   hub.bind(ctx.deps.store.ydoc);
 
-  const built = buildApp(ctx, { tools, hub, ...(opts.logger !== undefined ? { logger: opts.logger } : {}) });
+  const built = buildApp(ctx, {
+    tools,
+    hub,
+    ...(opts.logger !== undefined ? { logger: opts.logger } : {}),
+    ...(site ? { extraRoutes: (app: FastifyInstance) => void app.get("/api/preview-site", previewSiteRoute(site, () => ctx.deps.store.allFiles())) } : {}),
+  });
   return {
     ctx,
     agents,

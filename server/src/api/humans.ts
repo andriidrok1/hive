@@ -32,6 +32,8 @@ export function hiveState(ctx: HiveContext): HiveState {
     recentEvents: d.emitter.recent(),
   };
   if (green) state.lastGreen = { rev: green.rev, at: green.at };
+  const previewSiteUrl = ctx.previewSiteUrl?.();
+  if (previewSiteUrl) (state as HiveState & { previewSiteUrl?: string }).previewSiteUrl = previewSiteUrl;
   return state;
 }
 

@@ -199,6 +199,8 @@ export interface HiveContext {
   deps: HiveDeps;
   agents: AgentManagerLike;
   presence?: PresenceLike;
+  /** Public preview site URL once known (HIVE_PREVIEW_SITE=1), for GET /api/state. */
+  previewSiteUrl?: () => string | undefined;
   reset(mode?: HiveMode): Promise<void>;
 }
 
