@@ -61,6 +61,7 @@ describe("spawnDemoAgents", () => {
     expect(DEMO_PRESETS.map((p) => p.agentId)).toEqual(["agent-alex", "agent-nika"]);
     expect(DEMO_PRESETS[0]?.task).toContain("receiptWidth(items, promo?)");
     expect(DEMO_PRESETS[0]?.task).toContain('"\\n"');
+    expect(DEMO_PRESETS[0]?.task).toContain('where N is the total quantity, a line of 24 dashes before the Total line, and a final line "Thank you for your order!".');
     // Final decision: Alex in src/order.ts, Nika in src/format.ts (separate files, separate test files).
     expect(DEMO_PRESETS[1]?.task).toContain("formatPercent(value)");
     expect(DEMO_PRESETS[1]?.task).toContain('"-$1.50" for -150');
