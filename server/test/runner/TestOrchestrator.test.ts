@@ -387,7 +387,8 @@ describe("TestOrchestrator", () => {
         intentOf(cs, { target: { file: "src/format.ts", symbol: "formatPrice" }, check: `expect(formatPrice(0)).toBe("$0.00");` }),
         intentOf(breakDiscount(), { id: "C9", agentId: "agent-caller", target: { file: "src/order.ts", symbol: "orderSummary" }, status: "in_progress" }),
       ],
-      isGreen: () => false,
+      // only the untouched base is green: the check is red, the suite is red, and the search isolates A1
+      isGreen: (files) => files["src/format.ts"] === DEMO_APP_FILES["src/format.ts"] && !(CHECK_TEST_PATH in files),
       readers: { "src/format.ts#formatPrice": ["agent-masha"] },
       callers: [{ file: "src/order.ts", line: 20, caller: "orderSummary", callee: "formatPrice" }],
     });
@@ -395,8 +396,10 @@ describe("TestOrchestrator", () => {
     expect(t.calls.slice(0, 2).map((c) => c.filter)).toEqual(["__hive_check__", undefined]); // then the search's variants
     expect(t.intents.statuses).toEqual([{ id: "A1", status: "failed" }]); // set once, not again by the search
     const kinds = t.briefings.all.map((b) => `${b.kind}->${b.toAgent}`).sort();
-    expect(kinds.slice(0, 3)).toEqual(["verification_failed->agent-andrii", "verification_failed->agent-caller", "verification_failed->agent-masha"]);
-    expect(t.events.some((e) => e.type === "culprit_search_started")).toBe(true);
+    expect(kinds.filter((k) => k.startsWith("verification_failed"))).toEqual(["verification_failed->agent-andrii", "verification_failed->agent-caller", "verification_failed->agent-masha"]);
+    expect(kinds.filter((k) => k.startsWith("culprit"))).toEqual(["culprit->agent-andrii"]);
+    const found = t.events.find((e) => e.type === "culprit_found") as Extract<FeedEventBody, { type: "culprit_found" }>;
+    expect(found.report).toMatchObject({ kind: "single", culprits: ["A1"] });
     expect(t.history.snapshots.filter((s) => s.green).length).toBe(1);
   });
 
