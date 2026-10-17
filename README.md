@@ -1,6 +1,26 @@
 # Hive
 
-Hive is a shared live project for people and their coding agents. Every human brings their own agent; all agents work in one project that lives on the Hive server as Yjs documents, so every read returns the latest version and the web editor shows every edit as it lands. Before an agent edits a symbol it declares an intent: what it changes and the output it promises. Hive checks new intents against the others before any code exists and catches contradictions there. It tracks what each agent has read and briefs dependents when something they rely on changes. Each finished intent is judged on a view, the last green snapshot plus finished change sets, with other agents' in-progress edits excluded. When tests fail, Hive runs variants of the project with and without each change set in parallel Freestyle VMs and names the culprit change set or the conflicting pair. Built for RFS 4, Multiplayer AI, track Agent-first software.
+**One live project for people and their coding agents.** Every human brings their own agent; all of them edit the same files at the same time, Google-Docs style, and Hive keeps them from breaking each other's work.
+
+<p align="center"><img src="docs/img/hive-ide.png" alt="Hive: three agents editing one project, culprit search grid on the right" width="920"></p>
+
+Built in one day at [c0mpiled-14](https://luma.com/compiled-289f) (UC Berkeley, 17 Oct 2026) for YC RFS 4 *Multiplayer AI*, track 01 *Agent-first software*. Stack: TypeScript, Yjs, Fastify, React, OpenAI `gpt-5.4-mini`, [Freestyle](https://freestyle.sh) VMs.
+
+## What it does
+
+Before an agent touches a function it **declares an intent**: which symbol, what it will do, what the output will be. Hive checks that promise against every other standing promise *before any code exists*, flags `same_target` and semantic contradictions, and lets agents talk it out (three exchanges max, then it goes to the humans). Every `read_file` is logged with the symbols in range, so when something an agent relied on changes it gets a **briefing** it must acknowledge (adapted / not relevant / ask). Each finished intent is **judged on its own view**: last green snapshot plus finished change sets, nobody's half-written edits. When the suite goes red, Hive spins up **variants in parallel VMs** (with and without each change set) and names the culprit change set, or the pair that only fails together, in under a second locally and under four seconds on Freestyle.
+
+Humans are participants too: open any file and see whose agent is in it and what it promised; drop a note; pause, interrupt or redirect any agent; edit a contract from your phone (`/m`).
+
+## See it
+
+The demo project is a small checkout library with a real bug: percent promos produce fractional cents, so the receipt prints `Discount -$5.64.69999999999982`. Three agents fix it together: Alex adds `receipt()` with an items header and footer, Nika makes `formatPrice` handle negatives and adds `formatPercent`, and the presenter's agent adds `discountLine()` with rounding, which needs Nika's `formatPercent`: if it is not there yet, the agent asks her and waits. All three write in `src/order.ts` and `src/format.ts` at once; typical run 45–60 s, suite green 28/28.
+
+<p align="center"><img src="docs/img/receipt-before-after.png" alt="Public receipt page before and after the agents" width="820"></p>
+
+The receipt is served live from the project files by a Freestyle VM at **https://hive-receipt-1045.style.dev** (while the demo server is up): the body is the project's own `orderSummary()` / `receipt()` output, broken values painted red, status chips underneath.
+
+What the feed shows during the run: `DECLARE` with promise and check, `CONFLICT same_target` / `contradiction` caught on declare, `BRIEFING symbol_changed` → `ACK adapted`, `MSG` between agents, `TESTS` on each agent's view, `CULPRIT` grid with `green+alex`, `all-andrii`, pairs. A recorded run is in `.hive/feed-demo-take3.log`-style logs after you run it yourself (`node scripts/watch-feed.mjs`).
 
 ## Why
 
@@ -104,7 +124,7 @@ npm run bench -w @hive/bench -- --scenarios s01,s02 --variants hive,naive,isolat
 
 Results land in `results/results.csv` and `results/summary.md`. With `--parallel N` the bench expects N servers on consecutive ports.
 
-Tests: `npm test` at the root runs every package (server 150, agent, web, bench, demo-app), `npm run typecheck` checks them all.
+Tests: `npm test` at the root runs every package (about 1,430 across server, agent, web, bench and demo-app), `npm run typecheck` checks them all.
 
 ## Measured
 
