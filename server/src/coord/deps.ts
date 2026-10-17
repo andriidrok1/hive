@@ -1,24 +1,13 @@
-// Structural interfaces for the pieces of core (brief 01) that coord depends on.
-// Coord never imports server/src/core directly, so this package typechecks before
-// the core module is merged. The real ReadLog satisfies ReadLogLike structurally.
+// Types coord needs from core (brief 01). Kept structural so tests can use small fakes
+// and so brief 03's structural `*Like` interfaces stay assignable.
 
-import type { AgentId, Rev } from "@hive/shared";
+import type { ReadLog } from "../core/index.js";
+import type { FileChange } from "../core/index.js";
 
-export interface ReadLogLike {
-  record(agentId: AgentId, path: string, rev: Rev, symbols: string[]): void;
-  readsOf(agentId: AgentId): { path: string; rev: Rev; symbols: string[] }[];
-  readersOf(path: string, symbol?: string): { agentId: AgentId; rev: Rev }[];
-}
+export { badArgs } from "../core/index.js";
 
-export interface StoreChange {
-  path: string;
-  rev: Rev;
-  actor: string;
-  intentId?: string;
-  before: string;
-  after: string;
-}
+/** The part of core's ReadLog that coord uses. The real ReadLog satisfies it; so does a test fake. */
+export type ReadLogLike = Pick<ReadLog, "record" | "readsOf" | "readersOf">;
 
-export function badArgs(message: string): Error & { code: "BAD_ARGS" } {
-  return Object.assign(new Error(message), { code: "BAD_ARGS" as const });
-}
+/** What ProjectStore.onChange delivers (core's FileChange). */
+export type StoreChange = FileChange;

@@ -4,6 +4,7 @@ import { BriefingQueue } from "../../src/coord/BriefingQueue.js";
 import { CallGraph } from "../../src/coord/CallGraph.js";
 import { IntentRegistry, isVagueOutput } from "../../src/coord/IntentRegistry.js";
 import { CHECK_PROMPTS, FakeLLM } from "../../src/coord/llm.js";
+import { ReadLog } from "../../src/core/index.js";
 import { CHECKOUT_TS, FakeReadLog, REPORT_TS, eventSink } from "./fakes.js";
 
 const A = "agent-andrii";
@@ -288,6 +289,20 @@ describe("IntentRegistry", () => {
     expect(briefings.takeUndelivered(A)[0]).toMatchObject({ kind: "contract_changed", requiresAck: true, fromHuman: "andrii", details: { intentId: "A1" } });
     expect(briefings.takeUndelivered(B)[0]).toMatchObject({ kind: "contract_changed", requiresAck: true, details: { yourUsages: expect.any(Array) } });
     expect(() => intents.humanEditOutput("andrii", "A1", "short")).toThrow(/10..300/);
+  });
+
+  it("works with the real core ReadLog (structural ReadLogLike)", async () => {
+    const reads = new ReadLog();
+    const sink = eventSink();
+    const graph = new CallGraph();
+    graph.update({ "src/checkout.ts": CHECKOUT_TS });
+    const briefings = new BriefingQueue({ onEvent: sink.onEvent });
+    const intents = new IntentRegistry({ llm: new FakeLLM(() => ({ conflict: false })), graph, reads, briefings, onEvent: sink.onEvent, mode: "hive" });
+    reads.record(B, "src/checkout.ts", 2, ["calculateTotal"]);
+    reads.record(B, "src/checkout.ts", 4, ["calculateTotal"]);
+    const r = await intents.declare(A, "andrii", calc(), 5);
+    expect(r.dependents).toEqual([B]);
+    expect(briefings.takeUndelivered(B)[0]?.kind).toBe("intent_declared");
   });
 
   it("15. naive and isolated modes approve everything, no briefings, no LLM", async () => {

@@ -50,6 +50,18 @@ describe("OpenAILLM (mocked fetch)", () => {
     expect(sink.ofType("llm_call").map((e) => e.purpose)).toEqual(["check:meaning", "check:meaning"]);
   });
 
+  it("16d. falls back to reasoning_effort none when the API rejects low, and remembers it", async () => {
+    const f = fakeFetch([
+      { status: 400, body: '{"error":{"message":"Unsupported value: reasoning_effort does not support low with this model"}}' },
+      completion('{"meaning":"ok"}'),
+      completion('{"meaning":"again"}'),
+    ]);
+    const llm = new OpenAILLM({ apiKey: "k", model: "m", fetchImpl: f.fetchImpl });
+    expect(await llm.json(CHECK_PROMPTS.meaning, "d", "{meaning: string}")).toEqual({ meaning: "ok" });
+    expect(await llm.json(CHECK_PROMPTS.meaning, "d", "{meaning: string}")).toEqual({ meaning: "again" });
+    expect(f.calls.map((c) => c.body.reasoning_effort)).toEqual(["low", "none", "none"]);
+  });
+
   it("16c. invalid JSON twice throws; HTTP errors throw with the status", async () => {
     const f = fakeFetch([completion("nope"), completion("still nope")]);
     const llm = new OpenAILLM({ apiKey: "k", model: "m", fetchImpl: f.fetchImpl });

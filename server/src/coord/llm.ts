@@ -64,21 +64,31 @@ export class OpenAILLM implements LLM {
     throw new Error(`LLM returned invalid JSON twice: ${String(lastError)}`);
   }
 
+  /** "low" by default; some models reject it (see CONTRACTS, agent loop), then we fall back to "none" and remember. */
+  private effort: "low" | "none" = "low";
+
   private async call(messages: { role: string; content: string }[], purpose: string): Promise<string> {
     const fetchImpl: FetchLike = this.opts.fetchImpl ?? ((input, init) => fetch(input, init));
     const started = Date.now();
-    const res = await fetchImpl(`${this.opts.baseUrl}/chat/completions`, {
-      method: "POST",
-      headers: { "content-type": "application/json", authorization: `Bearer ${this.opts.apiKey}` },
-      body: JSON.stringify({
-        model: this.opts.model,
-        messages,
-        response_format: { type: "json_object" },
-        reasoning_effort: "low",
-      }),
-      signal: AbortSignal.timeout(this.opts.timeoutMs),
-    });
-    const text = await res.text();
+    const post = () =>
+      fetchImpl(`${this.opts.baseUrl}/chat/completions`, {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${this.opts.apiKey}` },
+        body: JSON.stringify({
+          model: this.opts.model,
+          messages,
+          response_format: { type: "json_object" },
+          reasoning_effort: this.effort,
+        }),
+        signal: AbortSignal.timeout(this.opts.timeoutMs),
+      });
+    let res = await post();
+    let text = await res.text();
+    if (res.status === 400 && this.effort === "low" && /reasoning/i.test(text)) {
+      this.effort = "none";
+      res = await post();
+      text = await res.text();
+    }
     if (!res.ok) throw new Error(`OpenAI HTTP ${res.status}: ${text.slice(0, 300)}`);
     let parsed: { choices?: { message?: { content?: string } }[]; usage?: { prompt_tokens?: number; completion_tokens?: number } };
     try {
