@@ -179,8 +179,13 @@ export interface ToolArgs {
 export type ToolName = keyof ToolArgs;
 
 export interface ToolResults {
-  list_files: { files: FileInfo[] };
-  read_file: { path: string; rev: Rev; content: string; symbols: SymbolInfo[] };
+  // Presence: who is working in a file right now (active intents), so agents can plan around each other.
+  list_files: { files: (FileInfo & { activeIntents?: { id: IntentId; agentId: AgentId; symbol: string }[] })[] };
+  read_file: {
+    path: string; rev: Rev; content: string; symbols: SymbolInfo[];
+    activeIntents?: { id: IntentId; agentId: AgentId; humanId: HumanId; symbol: string; status: IntentStatus; what: string; output: string }[];
+    note?: string;
+  };
   declare_intent: DeclareIntentResult;
   edit_region: { path: string; rev: Rev };
   create_file: { path: string; rev: Rev };
