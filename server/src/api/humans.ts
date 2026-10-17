@@ -46,6 +46,8 @@ export async function runSuite(ctx: HiveContext, req: TestRequest, reason: strin
     result = { ok: false, passed: 0, failed: 0, failures: [{ name: "runner", message: err instanceof Error ? err.message : String(err) }], durationMs: 0 };
   }
   d.emitter.emit({ type: "test_run_finished", runId, rev, result });
+  // A green run of the project as it is (no scenario extras) is a valid green baseline for the culprit search.
+  if (result.ok && !req.extraFiles && d.store.rev === rev) d.history.saveSnapshot(true);
   return result;
 }
 

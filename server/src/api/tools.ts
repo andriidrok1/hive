@@ -294,15 +294,7 @@ async function execute<T extends ToolName>(ctx: HiveContext, h: ToolHandlers, ag
       if (!["approved", "in_progress", "conflict", "declared"].includes(intent.status)) {
         throw new ToolError("INTENT_NOT_APPROVED", `${a.intentId} is already ${intent.status}`);
       }
-      d.intents.setStatus(a.intentId, "done", { rev: store.rev });
-      try {
-        d.history.finishIntent(a.intentId);
-      } catch {
-        // history may not know the intent if beginIntent was skipped (e.g. after a reset)
-      }
-      void d.orchestrator.onIntentFinished(a.intentId).catch((err: unknown) => {
-        console.error(`[hive] orchestrator failed for ${a.intentId}:`, err instanceof Error ? err.message : err);
-      });
+      finishIntent(ctx, a.intentId, store.rev);
       return { intent: d.intents.get(a.intentId) ?? { ...intent, status: "done" } } as ToolResults[T];
     }
 
@@ -356,6 +348,42 @@ async function execute<T extends ToolName>(ctx: HiveContext, h: ToolHandlers, ag
     default:
       throw new ToolError("BAD_ARGS", `unknown tool ${String(tool)}`);
   }
+}
+
+/** The finish_intent path: status done (with endRev), close the change set, hand it to the TestOrchestrator. */
+export function finishIntent(ctx: HiveContext, intentId: IntentId, rev: Rev): void {
+  const d = ctx.deps;
+  d.intents.setStatus(intentId, "done", { rev });
+  try {
+    d.history.finishIntent(intentId);
+  } catch {
+    // history may not know the intent if beginIntent was skipped (e.g. after a reset)
+  }
+  void d.orchestrator.onIntentFinished(intentId).catch((err: unknown) => {
+    console.error(`[hive] orchestrator failed for ${intentId}:`, err instanceof Error ? err.message : err);
+  });
+}
+
+/**
+ * When an agent run ends, close what it left open so other agents are not blocked forever:
+ * in_progress (edits made, never finished) -> same path as finish_intent;
+ * declared | approved | conflict (no edits yet) -> cancelled, which re-approves conflicting intents.
+ */
+export function closeOpenIntents(ctx: HiveContext, h: ToolHandlers, agentId: AgentId): { finished: IntentId[]; cancelled: IntentId[] } {
+  const d = ctx.deps;
+  const finished: IntentId[] = [];
+  const cancelled: IntentId[] = [];
+  for (const intent of d.intents.list()) {
+    if (intent.agentId !== agentId) continue;
+    if (intent.status === "in_progress") {
+      finishIntent(ctx, intent.id, h.storeFor(agentId).rev);
+      finished.push(intent.id);
+    } else if (intent.status === "approved" || intent.status === "conflict" || intent.status === "declared") {
+      d.intents.setStatus(intent.id, "cancelled");
+      cancelled.push(intent.id);
+    }
+  }
+  return { finished, cancelled };
 }
 
 /** Mode and intent checks before an edit. Returns the intentId to attribute the edit to (if any). */
