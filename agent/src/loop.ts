@@ -56,6 +56,10 @@ function rejectsReasoningEffort(e: unknown): boolean {
   return status === 400 && /reasoning_effort/i.test(message);
 }
 export const DEFAULTS = { maxToolCalls: 40, maxMs: 15 * 60_000, maxTokens: 400_000, pauseMs: 2000, conflictWaitMs: 90_000, conflictPollMs: 3_000 } as const;
+// Red-tests nudges repeat up to MAX_RED_NUDGES while at least NUDGE_MIN_TOOL_CALLS calls and NUDGE_MIN_MS remain.
+export const MAX_RED_NUDGES = 3;
+export const NUDGE_MIN_TOOL_CALLS = 8;
+export const NUDGE_MIN_MS = 60_000;
 
 type Msg = OpenAI.Chat.ChatCompletionMessageParam;
 
@@ -133,10 +137,15 @@ export async function runAgent(opts: RunOptions): Promise<RunResult> {
   let lastRev: Rev = 0;
   // Briefings collected outside a tool message (pause polls, interrupt pick-up) go to the model as a user message.
   let pending: Briefing[] = [];
-  // For the one-time nudge: last run_tests result seen, and required briefings not yet acked.
+  // Extra user lines (culprit override, ...) delivered before the next model call.
+  let pendingNotes: string[] = [];
+  // For the nudges: last red/green test result seen (run_tests, or failing tests carried by a culprit /
+  // verification_failed briefing), required briefings not yet acked, and how many nudges went out.
   let lastTests: TestResult | undefined;
   const unacked = new Map<string, Briefing>();
-  let nudged = false;
+  const seenBriefings = new Map<string, Briefing>();
+  const myIntents = new Set<IntentId>();
+  let nudges = 0;
   // Intents this agent declared that came back "conflict", keyed by id, with their target so a
   // later approved re-declare of the same target clears them. Cleared by the server's intent_conflict
   // "now approved" briefing (requiresAck=false) as well.
@@ -145,15 +154,21 @@ export async function runAgent(opts: RunOptions): Promise<RunResult> {
 
   function noteResponse(tool: ToolName, args: unknown, r: ToolResponse): void {
     for (const b of r.briefings) {
+      seenBriefings.set(b.id, b);
       if (b.requiresAck && !b.ack) unacked.set(b.id, b);
       const id = b.details.intentId;
       if (b.kind === "intent_conflict" && id && conflicting.has(id) && (!b.requiresAck || /approved/i.test(b.summary))) conflicting.delete(id);
+      if ((b.kind === "culprit" || b.kind === "verification_failed") && b.details.failingTests?.length) {
+        const failures = b.details.failingTests;
+        lastTests = { ok: false, passed: 0, failed: failures.length, failures, durationMs: 0 };
+      }
     }
     if (!r.ok) return;
     if (tool === "run_tests" && r.data && typeof r.data === "object" && "ok" in r.data) lastTests = r.data as TestResult;
     if (tool === "ack_briefing") unacked.delete(String((args as { briefingId?: unknown }).briefingId));
     if (tool === "declare_intent" && r.data && typeof r.data === "object" && "intent" in r.data) {
       const d = r.data as DeclareIntentResult;
+      if (d.intent?.id) myIntents.add(d.intent.id);
       const target = d.intent?.target ?? (args as { target?: { file: string; symbol: string } }).target;
       if (d.status === "conflict" && d.intent?.id) conflicting.set(d.intent.id, { file: target?.file ?? "", symbol: target?.symbol ?? "" });
       if (d.status === "approved" && target) {
@@ -188,18 +203,31 @@ export async function runAgent(opts: RunOptions): Promise<RunResult> {
     return null;
   }
 
+  // A culprit briefing that names one of this agent's intents (by details.intentId or by id in the summary).
+  function culpritNamesMe(b: Briefing): boolean {
+    if (b.kind !== "culprit") return false;
+    if (b.details.intentId && myIntents.has(b.details.intentId)) return true;
+    for (const id of myIntents) if (new RegExp(`\\b${id}\\b`).test(b.summary)) return true;
+    return false;
+  }
+
   // Called when the model answers without tool calls. Returns the nudge text, or null to accept the answer.
+  // Red tests: up to MAX_RED_NUDGES while the budget allows. Unacked-only: once.
   function nudgeFor(): string | null {
-    if (nudged) return null;
+    const red = !!lastTests && !lastTests.ok;
+    const budgetOk = maxToolCalls - toolCalls >= NUDGE_MIN_TOOL_CALLS && maxMs - elapsed() >= NUDGE_MIN_MS;
     const reasons: string[] = [];
-    if (lastTests && !lastTests.ok) {
+    if (red && budgetOk && nudges < MAX_RED_NUDGES && lastTests) {
       const names = lastTests.failures.map((f) => f.name).slice(0, 8).join(", ");
       reasons.push(`tests are still red (${lastTests.failed} failed${names ? `: ${names}` : ""})`);
     }
-    if (unacked.size) reasons.push(`briefings unacked (${[...unacked.keys()].join(", ")})`);
+    if (unacked.size && (reasons.length || nudges === 0)) reasons.push(`briefings unacked (${[...unacked.keys()].join(", ")})`);
     if (!reasons.length) return null;
-    nudged = true;
-    return `Hive: ${reasons.join(" / ")}. Fix the cause, ask the other agent via ask_agent, or explain in your final message why it is outside your task.`;
+    nudges += 1;
+    const advice = red && budgetOk
+      ? "You may still edit; if the failing tests belong to another agent's area, ask them and wait, otherwise fix now."
+      : "Call ack_briefing for each, then continue or finish.";
+    return `Hive: ${reasons.join(" / ")}. ${advice}`;
   }
 
   const elapsed = () => Date.now() - start;
@@ -241,6 +269,16 @@ export async function runAgent(opts: RunOptions): Promise<RunResult> {
     }
     if (!args || typeof args !== "object" || Array.isArray(args)) {
       return errorEnvelope("BAD_ARGS", "tool arguments must be a JSON object", lastRev);
+    }
+    if (name === "ack_briefing") {
+      const a = args as { briefingId?: unknown; response?: unknown; note?: unknown };
+      const b = seenBriefings.get(String(a.briefingId));
+      if (a.response === "not_relevant" && b && culpritNamesMe(b)) {
+        // The model may not wave away a culprit report about its own change set: record as adapted and say so.
+        args = { ...a, response: "adapted", note: `${typeof a.note === "string" && a.note ? `${a.note} ` : ""}[Hive: not_relevant overridden, culprit names this agent's change set]` };
+        pendingNotes.push("Hive: the culprit report names your change set; fix or explain.");
+        emit({ type: "tool_call", tool: name, overridden: "not_relevant->adapted", briefingId: b.id, step });
+      }
     }
     emit({ type: "status", status: "tool", step, tool: name });
     const t1 = Date.now();
@@ -284,6 +322,10 @@ export async function runAgent(opts: RunOptions): Promise<RunResult> {
     if (pending.length) {
       messages.push({ role: "user", content: formatBriefings(pending) });
       pending = [];
+    }
+    if (pendingNotes.length) {
+      messages.push({ role: "user", content: pendingNotes.join("\n") });
+      pendingNotes = [];
     }
 
     // Fresh interrupt signal before EVERY model call; never reuse an aborted one.
