@@ -113,7 +113,11 @@ export class TestOrchestrator {
       if (view.ok) {
         files = view.files;
         rev = intent?.endRev ?? sets[sets.length - 1]?.endRev ?? store.rev;
-        const excluded = history.openIntents().map((o) => o.intentId).filter((id) => id !== intentId);
+        // Other agents' open intents only: the finishing agent's own work is either in `sets` or its own business.
+        const excluded = history
+          .openIntents()
+          .filter((o) => typeof o.intentId === "string" && o.intentId.length > 0 && o.intentId !== intentId && (!intent || o.agentId !== intent.agentId))
+          .map((o) => (o.files.length > 0 ? `${o.intentId} (${o.files.join(", ")})` : o.intentId));
         where = `view: ${sets.length} finished set${sets.length === 1 ? "" : "s"}, excluded in-progress: ${excluded.length > 0 ? excluded.join(", ") : "none"}`;
       } else {
         files = store.allFiles();

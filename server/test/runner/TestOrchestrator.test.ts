@@ -36,7 +36,8 @@ function fakeStore(files: Record<string, string>, rev = 0) {
   };
 }
 
-function fakeHistory(store: ReturnType<typeof fakeStore>, changeSets: ChangeSet[], green?: Snapshot, opts: { open?: string[] } = {}) {
+type OpenSpec = string | { intentId: string; agentId: string; files?: string[] };
+function fakeHistory(store: ReturnType<typeof fakeStore>, changeSets: ChangeSet[], green?: Snapshot, opts: { open?: OpenSpec[] } = {}) {
   const snapshots: Snapshot[] = green ? [green] : [];
   const h = {
     snapshots,
@@ -49,7 +50,10 @@ function fakeHistory(store: ReturnType<typeof fakeStore>, changeSets: ChangeSet[
     },
     lastGreen: () => [...snapshots].reverse().find((s) => s.green),
     changeSetsSince: (rev: Rev) => changeSets.filter((c) => c.endRev > rev).sort((a, b) => a.endRev - b.endRev),
-    openIntents: (agentId?: string) => (opts.open ?? []).map((id) => ({ intentId: id, agentId: `agent-${id.toLowerCase()}`, files: [] as string[] })).filter((o) => agentId === undefined || o.agentId === agentId),
+    openIntents: (agentId?: string) =>
+      (opts.open ?? [])
+        .map((o) => (typeof o === "string" ? { intentId: o, agentId: `agent-${o.toLowerCase()}`, files: [] as string[] } : { intentId: o.intentId, agentId: o.agentId, files: o.files ?? [] }))
+        .filter((o) => agentId === undefined || o.agentId === agentId),
   };
   return h;
 }
@@ -127,7 +131,7 @@ function setup(opts: {
   failureMessage?: string;
   failure?: { name: string };
   culpritCooldownMs?: number;
-  open?: string[];
+  open?: OpenSpec[];
 }) {
   const store = fakeStore(opts.files, 10);
   const green: Snapshot = { rev: 0, files: { ...DEMO_APP_FILES }, green: true, at: 0 };
@@ -190,7 +194,13 @@ describe("TestOrchestrator", () => {
       changeSets: [a1],
       intents: [intentOf(a1)],
       isGreen: (files) => !files["src/discount.ts"]!.includes("Math.floor"),
-      open: ["M1", "A1"],
+      open: [
+        { intentId: "M1", agentId: "agent-masha", files: ["src/discount.ts", "test/discount.test.ts"] },
+        { intentId: "A5", agentId: "agent-andrii", files: ["src/order.ts"] }, // the finishing agent's own open intent: not listed
+        { intentId: "A1", agentId: "agent-andrii" }, // the intent being finished itself: not listed
+        { intentId: "M2", agentId: "agent-masha" }, // no files yet: bare id
+        { intentId: "", agentId: "agent-bob" }, // never an empty entry
+      ],
     });
     await t.orchestrator.onIntentFinished("A1");
     expect(t.calls.length).toBe(1);
@@ -198,7 +208,7 @@ describe("TestOrchestrator", () => {
     expect(t.calls[0]!.files["src/format.ts"]).toBe(applyAll(DEMO_APP_FILES, [a1])["src/format.ts"]); // A1 included
     expect(t.intents.statuses).toEqual([{ id: "A1", status: "verified" }]);
     const started = t.events[0] as Extract<FeedEventBody, { type: "test_run_started" }>;
-    expect(started.reason).toBe("intent A1 finished (view: 1 finished set, excluded in-progress: M1)");
+    expect(started.reason).toBe("intent A1 finished (view: 1 finished set, excluded in-progress: M1 (src/discount.ts, test/discount.test.ts), M2)");
     expect(started.rev).toBe(a1.endRev);
     expect(t.history.saveCalls).toEqual([{ green: true, view: { rev: a1.endRev, files: applyAll(DEMO_APP_FILES, [a1]) } }]);
     expect(t.history.lastGreen()!.files["src/discount.ts"]).toBe(DEMO_APP_FILES["src/discount.ts"]);
