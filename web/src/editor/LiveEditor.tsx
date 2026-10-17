@@ -7,7 +7,7 @@ import { basicSetup } from "codemirror";
 import { javascript } from "@codemirror/lang-javascript";
 import { oneDark } from "@codemirror/theme-one-dark";
 import { yCollab, yUndoManagerKeymap } from "y-codemirror.next";
-import { getShared } from "./yjs";
+import { hub, useShared } from "./yjs";
 import { intentRanges, type IntentRange } from "./ranges";
 
 // ---------- Intent decorations ----------
@@ -85,10 +85,14 @@ export default function LiveEditor({ path, humanId, intents, symbols }: Props) {
   const viewRef = useRef<EditorView | null>(null);
   const [ytext, setYtext] = useState<Y.Text | null>(null);
   const [synced, setSynced] = useState(false);
+  // Replaced wholesale after a server reset (close code 4000); every effect below re-binds to it.
+  const shared = useShared();
+
+  useEffect(() => hub.setUser(humanId), [humanId, shared]);
 
   // Resolve the Y.Text for the path, waiting for the key to appear after sync.
   useEffect(() => {
-    const { files, provider } = getShared(humanId);
+    const { files, provider } = shared;
     const pick = () => setYtext(files.get(path) ?? null);
     pick();
     files.observe(pick);
@@ -99,11 +103,11 @@ export default function LiveEditor({ path, humanId, intents, symbols }: Props) {
       files.unobserve(pick);
       provider.off("sync", onSync);
     };
-  }, [path, humanId]);
+  }, [path, shared]);
 
   useEffect(() => {
     if (!host.current || !ytext) return;
-    const { provider } = getShared(humanId);
+    const { provider } = shared;
     const extensions: Extension[] = [
       basicSetup,
       javascript({ typescript: true }),
@@ -119,7 +123,7 @@ export default function LiveEditor({ path, humanId, intents, symbols }: Props) {
       view.destroy();
       viewRef.current = null;
     };
-  }, [ytext, humanId]);
+  }, [ytext, shared]);
 
   // Push intent ranges whenever intents, symbols or the document text change.
   // Never dispatch synchronously from inside another update (Yjs observers fire mid-transaction),

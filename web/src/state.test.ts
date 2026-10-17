@@ -99,4 +99,20 @@ describe("reducer", () => {
     expect(s.counters.briefingsSent).toBe(run(MOCK_EVENTS).counters.briefingsSent);
     expect(s.events).toHaveLength(MOCK_EVENTS.length);
   });
+
+  it("resync after a server reset starts counters from zero even though ids keep growing", () => {
+    const full = run(MOCK_EVENTS);
+    expect(full.counters.briefingsSent).toBeGreaterThan(0);
+    const fresh = mockInitialState(); // rev 0, no events: what /api/state returns right after /api/reset
+    const explicit = resync(full, fresh, { reset: true });
+    expect(explicit.counters).toEqual({ briefingsSent: 0, planChanges: 0, conflictsCaught: 0, culpritSearches: 0 });
+    expect(explicit.intents).toEqual([]);
+    expect(explicit.connection).toBe(full.connection);
+    // Rev going backwards is treated as a reset too, with no flag.
+    const inferred = resync(full, { ...fresh, rev: 0 });
+    expect(inferred.counters.briefingsSent).toBe(0);
+    // Plain reconnect with the same rev keeps counters.
+    const same = resync(full, { ...fresh, rev: full.rev });
+    expect(same.counters.briefingsSent).toBe(full.counters.briefingsSent);
+  });
 });

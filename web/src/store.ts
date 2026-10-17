@@ -70,6 +70,16 @@ function stripId(e: FeedEvent): FeedEventBody {
   return body as FeedEventBody;
 }
 
+// After POST /api/reset (Yjs close code 4000 or a restarted id counter): fresh state, counters from zero.
+export async function resyncAfterReset(store: HiveStore): Promise<void> {
+  try {
+    const h = await fetchState();
+    store.update((s) => resync(s, h, { reset: true }));
+  } catch {
+    // the feed socket's reconnect path re-syncs again
+  }
+}
+
 // ---------- Live connection: GET /api/state, then /ws/feed with reconnect + re-sync ----------
 
 export function connectLive(store: HiveStore): () => void {
@@ -103,7 +113,14 @@ export function connectLive(store: HiveStore): () => void {
     ws.onmessage = (m) => {
       try {
         const e = JSON.parse(String(m.data)) as FeedEvent;
-        if (typeof e.id === "number" && typeof e.type === "string") store.dispatch(e);
+        if (typeof e.id !== "number" || typeof e.type !== "string") return;
+        // A live event with an id below what we already saw can only mean the server restarted
+        // its counter: pull a fresh state instead of silently dropping everything that follows.
+        if (e.id < store.getState().lastEventId) {
+          void resyncAfterReset(store);
+          return;
+        }
+        store.dispatch(e);
       } catch {
         // ignore malformed frames
       }

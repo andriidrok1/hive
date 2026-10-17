@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { connectLive, createStore, startMock, useHive } from "./store";
+import { connectLive, createStore, resyncAfterReset, startMock, useHive } from "./store";
+import { hub } from "./editor/yjs";
 import { currentIntentOf, pendingBriefings, unresolvedConflicts } from "./state";
 import { isMock, lanUrl, loadHumanId, saveHumanId } from "./env";
 import { setMockSink } from "./api";
@@ -33,7 +34,13 @@ export function App({ mockStepMs }: { mockStepMs?: number } = {}) {
         setMockSink(null);
       };
     }
-    return connectLive(store);
+    const disconnect = connectLive(store);
+    // Server reset: the Yjs hub replaces its doc (close code 4000); the feed state starts over too.
+    const offReset = hub.onReset(() => void resyncAfterReset(store));
+    return () => {
+      disconnect();
+      offReset();
+    };
   }, [store, mock, mockStepMs]);
 
   // Judges should not miss the culprit search: jump to the tab when one starts.

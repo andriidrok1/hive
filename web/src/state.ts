@@ -83,9 +83,13 @@ export function initialUiState(h: HiveState = emptyHiveState): UiState {
 
 // Merge a fresh GET /api/state (after a reconnect) into what we already have:
 // authoritative lists come from the server, counters keep accumulating from new events only.
-export function resync(state: UiState, h: HiveState): UiState {
+// `reset: true` (after POST /api/reset, signalled by the Yjs close code 4000) rebuilds the UI state
+// from scratch: the server keeps its event ids growing across a reset, so counters would otherwise
+// carry over. A rev that went backwards, or event ids that went backwards, mean the same thing.
+export function resync(state: UiState, h: HiveState, opts: { reset?: boolean } = {}): UiState {
   const newest = h.recentEvents.reduce((m, e) => Math.max(m, e.id), 0);
-  if (newest < state.lastEventId && h.recentEvents.length > 0) return { ...initialUiState(h), connection: state.connection }; // server restarted
+  const idsWentBack = newest < state.lastEventId && h.recentEvents.length > 0;
+  if (opts.reset || idsWentBack || h.rev < state.rev) return { ...initialUiState(h), connection: state.connection };
   const merged: UiState = {
     ...state,
     mode: h.mode,
