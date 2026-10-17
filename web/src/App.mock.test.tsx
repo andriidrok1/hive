@@ -19,7 +19,7 @@ describe("App in ?mock=1 mode", () => {
     expect(screen.getByText(/No agents yet/)).toBeTruthy();
     // Labelled spawn button in the tab bar and, large, in the empty state; hint names the two agents.
     expect(screen.getAllByRole("button", { name: /Spawn demo agents/ })).toHaveLength(2);
-    expect(screen.getByText("Starts Alex and Nika, both in src/order.ts")).toBeTruthy();
+    expect(screen.getByText("Starts Alex (order.ts) and Nika (format.ts)")).toBeTruthy();
     expect(screen.getByText("mock")).toBeTruthy(); // connection state next to the Live dot
     expect(screen.getByTestId("mode-pill").textContent).toBe("hive");
     // No header counters anywhere on the main page.

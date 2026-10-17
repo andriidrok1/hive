@@ -134,7 +134,7 @@ export function App({ mockStepMs }: { mockStepMs?: number } = {}) {
                           <Users />
                           Spawn demo agents
                         </Button>
-                        <div className="text-xs text-muted-foreground">Starts Alex and Nika, both in src/order.ts</div>
+                        <div className="text-xs text-muted-foreground">Starts Alex (order.ts) and Nika (format.ts)</div>
                         <Button variant="outline" size="sm" onClick={() => setDialog(true)}>
                           <Plus />
                           New agent

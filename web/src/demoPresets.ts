@@ -20,9 +20,9 @@ export const DEMO_PRESETS: DemoPreset[] = [
   {
     agentId: "agent-nika",
     humanId: "nika",
-    title: "Tax line and taxed summary in order.ts",
+    title: "Negative prices and percent formatting in format.ts",
     task:
-      'In src/order.ts add two exported functions: taxLine(totalCents, state) that returns the string "Tax $x.xx" where the tax is applyTax(totalCents, state) - totalCents (import applyTax from ./tax.js), and orderSummaryWithTax(items, promo, state) that calls orderSummary(items, promo), appends the tax line before the Total line, and returns the summary with total including tax. Add tests for both in a NEW file test/order-tax.test.ts (CA and OR). You own taxLine, orderSummaryWithTax and test/order-tax.test.ts; do not change orderSummary itself.',
+      'In src/format.ts make formatPrice handle negative cents by returning the sign before the dollar ("-$1.50" for -150) and add an exported function formatPercent(value) that returns the number followed by a percent sign, without decimals for whole numbers ("10%" for 10, "7.5%" for 7.5). Add tests for both in test/format.test.ts. You own src/format.ts and test/format.test.ts.',
   },
 ];
 
