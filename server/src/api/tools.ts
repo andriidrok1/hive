@@ -11,6 +11,7 @@ import type {
   IntentInput,
   Rev,
   SymbolInfo,
+  TestResult,
   ToolArgs,
   ToolErrorCode,
   ToolName,
@@ -315,11 +316,14 @@ async function execute<T extends ToolName>(ctx: HiveContext, h: ToolHandlers, ag
       const a = args as ToolArgs["run_tests"];
       const runId = `run_${agentId}_${Date.now()}`;
       const rev = store.rev;
-      d.emitter.emit({ type: "test_run_started", runId, rev, reason: `run_tests by ${agentId}` });
+      const view = agentView(ctx, agentId, store);
+      d.emitter.emit({ type: "test_run_started", runId, rev, reason: `run_tests by ${agentId}${view.view ? " (own view)" : ""}` });
       try {
-        const result = await d.runner.runTests(store.allFiles(), a.filter ? { filter: a.filter } : {});
+        const result = await d.runner.runTests(view.files, a.filter ? { filter: a.filter } : {});
         d.emitter.emit({ type: "test_run_finished", runId, rev, result });
-        return result as ToolResults[T];
+        const out: RunTestsData = { ...result, note: view.note };
+        if (view.view) out.view = view.view;
+        return out as ToolResults[T];
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         d.emitter.emit({ type: "test_run_finished", runId, rev, result: { ok: false, passed: 0, failed: 0, failures: [{ name: "runner", message }], durationMs: 0 } });
@@ -352,6 +356,55 @@ async function execute<T extends ToolName>(ctx: HiveContext, h: ToolHandlers, ag
     default:
       throw new ToolError("BAD_ARGS", `unknown tool ${String(tool)}`);
   }
+}
+
+export interface RunTestsView {
+  finishedSets: IntentId[];
+  ownOpenIntents: IntentId[];
+  excludedInProgress: { intentId: IntentId; agentId: AgentId; files: string[] }[];
+}
+export type RunTestsData = TestResult & { view?: RunTestsView; note?: string };
+
+/**
+ * The files an agent's run_tests is judged on. In hive mode: last green snapshot + finished change
+ * sets since it + the agent's own open edits, so another agent's half-done work cannot fail its run.
+ * Falls back to the live store (and says so) when the view cannot be built or History lacks the API.
+ */
+export function agentView(ctx: HiveContext, agentId: AgentId, store: ProjectStoreLike): { files: Record<string, string>; view?: RunTestsView; note: string } {
+  const d = ctx.deps;
+  const live = () => store.allFiles();
+  if (d.mode !== "hive") {
+    return { files: live(), note: d.mode === "isolated" ? "Ran on your private copy of the project." : "Ran on the live shared project." };
+  }
+  const h = d.history;
+  if (!h.openEdits || !h.buildView) {
+    return { files: live(), note: "Ran on the live shared project, including other agents' in-progress edits." };
+  }
+  const green = h.lastGreen();
+  const base = green ? { rev: green.rev, files: green.files } : { rev: 0, files: d.initialFiles };
+  const sets = h.changeSetsSince(base.rev);
+  const all = d.intents.list().filter((i) => i.status === "in_progress");
+  const ownIntents = all.filter((i) => i.agentId === agentId);
+  const own = ownIntents.flatMap((i) => h.openEdits!(i.id));
+  const excluded = all
+    .filter((i) => i.agentId !== agentId)
+    .map((i) => ({ intentId: i.id, agentId: i.agentId, files: [...new Set(h.openEdits!(i.id).map((e) => e.path))] }));
+  const view: RunTestsView = { finishedSets: sets.map((s) => s.id), ownOpenIntents: ownIntents.map((i) => i.id), excludedInProgress: excluded };
+  const built = h.buildView(base.files, sets, own);
+  const excludedText = excluded.length
+    ? ` Excluded in-progress edits of ${excluded.map((e) => `${e.agentId} (${e.intentId}: ${e.files.join(", ") || "no edits yet"})`).join(", ")}.`
+    : "";
+  if (!built.ok) {
+    return {
+      files: live(),
+      view,
+      note: `Could not build your view (patch of ${built.setId ?? "open edits"} did not apply at ${built.path}#${built.index}); ran on the live shared project instead, which includes other agents' in-progress edits.${excludedText}`,
+    };
+  }
+  const parts = [`green rev ${base.rev}`];
+  parts.push(view.finishedSets.length ? `finished ${view.finishedSets.join(", ")}` : "no finished intents since");
+  parts.push(view.ownOpenIntents.length ? `your open ${view.ownOpenIntents.join(", ")}` : "no open edits of yours");
+  return { files: built.files, view, note: `Ran on your view: ${parts.join(" + ")}.${excludedText}` };
 }
 
 /** The finish_intent path: status done (with endRev), close the change set, hand it to the TestOrchestrator. */

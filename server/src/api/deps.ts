@@ -78,7 +78,16 @@ export interface HistoryLike {
   saveSnapshot(green: boolean): Snapshot;
   lastGreen(): Snapshot | undefined;
   changeSetsSince(rev: Rev): ChangeSet[];
+  // Added by core after the first merge (declared optional until it lands): per-agent views for run_tests.
+  /** Edits recorded so far for an intent that is begun but not finished, in order. */
+  openEdits?(intentId: IntentId): ChangeSet["edits"];
+  /** Begun-but-unfinished intents (optionally of one agent). */
+  openIntents?(agentId?: AgentId): { intentId: IntentId; agentId: AgentId; files: string[] }[];
+  /** base + finished change sets in order + extra open edits, applied with applyEdits semantics. */
+  buildView?(base: Record<string, string>, sets: ChangeSet[], extraEdits?: ChangeSet["edits"]): BuildViewResult;
 }
+
+export type BuildViewResult = { ok: true; files: Record<string, string> } | { ok: false; path: string; index: number; setId?: IntentId };
 
 // ---------- coord (brief 02) ----------
 
