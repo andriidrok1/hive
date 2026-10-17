@@ -93,7 +93,10 @@ class History {
   lastGreen(): Snapshot | undefined
   changeSetsSince(rev: Rev): ChangeSet[]
 }
+function applyEdits(files: Record<string, string>, edits: ChangeSet["edits"]): { ok: true; files: Record<string, string> } | { ok: false; path: string; index: number }
 ```
+
+In `naive` and `isolated` modes, coord components (IntentRegistry conflict checks, ChangeWatcher, briefings) are no-ops; only the store, reads log, history and runner work.
 
 ### coord (brief 02)
 
@@ -117,7 +120,10 @@ class BriefingQueue {
   ack(agentId: AgentId, briefingId: string, ack: Omit<BriefingAck, "at">): boolean
   all(): Briefing[]
 }
-class ChangeWatcher { constructor(deps: {...}); onEdit(change): Promise<void> } // symbol diff + 1-line meaning + route briefings
+class ChangeWatcher {
+  constructor(deps: { llm: LLM; graph: CallGraph; reads: ReadLog; intents: IntentRegistry; briefings: BriefingQueue; onEvent: (e: FeedEventBody) => void; mode: HiveMode })
+  onEdit(change: { path: string; rev: Rev; actor: string; intentId?: IntentId; before: string; after: string }): Promise<void> // symbol diff + 1-line meaning + route briefings; no-op in naive/isolated
+}
 class Mailbox { ask(from, to, about, question): AgentMessage | { error: "EXCHANGE_LIMIT" }; reply(from, messageId, text): AgentMessage | { error: ... }; forHumans(): AgentMessage[] }
 class OpenAILLM implements LLM { constructor(opts: { apiKey: string; model: string }) }
 class FakeLLM implements LLM { constructor(responder: (system: string, user: string) => unknown) }
@@ -165,8 +171,8 @@ Per-tool rules:
 | Method | Path | Body | Effect |
 |---|---|---|---|
 | GET | `/api/state` | | `HiveState` |
-| GET | `/api/files/*` | | `{ content, rev, symbols: SymbolInfo[] }` (path after `/api/files/`, URL-encoded) |
-| POST | `/api/agents` | `{ agentId, humanId, task }` | start an agent loop with this task |
+| GET | `/api/files/*` | | `{ content, rev, symbols: SymbolInfo[] }`; the wildcard is `decodeURIComponent`-ed, so both `/api/files/src/checkout.ts` and `/api/files/src%2Fcheckout.ts` work |
+| POST | `/api/agents` | `{ agentId, humanId, task }` | start an agent loop with this task → `{ ok: true }` (409 if that agentId is already running); progress via `agent_status` events and `GET /api/state`, terminal statuses in `TERMINAL_AGENT_STATUSES` |
 | POST | `/api/agents/:agentId/control` | `{ humanId, control: "run" \| "pause" \| "stop" }` | pause/resume/stop |
 | POST | `/api/agents/:agentId/note` | `{ humanId, text, urgent?: boolean }` | `human_note` briefing; urgent aborts the current model call |
 | POST | `/api/intents/:id/output` | `{ humanId, output }` | contract change, briefings to dependents |

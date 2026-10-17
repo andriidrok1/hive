@@ -133,6 +133,10 @@ export interface AgentMessage {
 
 export type AgentControl = "run" | "pause" | "stop";
 
+// Lifecycle as reported by AgentManager. Terminal: stopped | done | budget | error.
+export type AgentStatus = "idle" | "thinking" | "tool" | "paused" | "stopped" | "done" | "budget" | "error";
+export const TERMINAL_AGENT_STATUSES: readonly AgentStatus[] = ["stopped", "done", "budget", "error"];
+
 // Every tool call returns this envelope. Pending briefings ride on it:
 // this is how Hive injects context before the model's next step.
 export interface ToolResponse<T = unknown> {
@@ -262,7 +266,7 @@ export interface LLM {
 // ---------- Feed (server -> web, over /ws/feed) ----------
 
 export type FeedEvent = { id: number; ts: number } & (
-  | { type: "agent_status"; agentId: AgentId; humanId: HumanId; status: "idle" | "thinking" | "tool" | "paused" | "stopped" | "done"; task?: string; step?: number }
+  | { type: "agent_status"; agentId: AgentId; humanId: HumanId; status: AgentStatus; task?: string; step?: number }
   | { type: "file_read"; agentId: AgentId; path: string; rev: Rev }
   | { type: "intent_declared"; intent: Intent; conflicts: IntentConflict[]; dependents: AgentId[] }
   | { type: "intent_status"; intentId: IntentId; status: IntentStatus }
@@ -287,7 +291,7 @@ export interface HiveState {
   mode: HiveMode;
   rev: Rev;
   files: FileInfo[];
-  agents: { agentId: AgentId; humanId: HumanId; status: string; task?: string; control: AgentControl }[];
+  agents: { agentId: AgentId; humanId: HumanId; status: AgentStatus; task?: string; control: AgentControl }[];
   intents: Intent[];
   history: ChangeSet[];
   lastGreen?: { rev: Rev; at: number };

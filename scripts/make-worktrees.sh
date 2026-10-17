@@ -8,9 +8,13 @@ mkdir -p "$WT"
 for b in 01-core-state 02-coordination 03-api-server 04-runner-culprit 05-agent-loop 06-web-ui 07-demo-app-bench; do
   dir="$WT/$b"
   if [ ! -d "$dir" ]; then
-    git worktree add -q "$dir" -b "build/$b"
+    if git show-ref --verify --quiet "refs/heads/build/$b"; then
+      git worktree add -q "$dir" "build/$b"
+    else
+      git worktree add -q "$dir" -b "build/$b"
+    fi
   fi
   cp "$ROOT/.env" "$dir/.env"
   chmod 600 "$dir/.env"
-  (cd "$dir" && npm ci --no-audit --no-fund >/dev/null 2>&1) && echo "ready: $dir" || echo "npm ci FAILED: $dir"
+  if (cd "$dir" && npm ci --no-audit --no-fund >/dev/null 2>&1); then echo "ready: $dir"; else echo "npm ci FAILED: $dir"; fi
 done

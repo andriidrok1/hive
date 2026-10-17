@@ -4,6 +4,13 @@ You own `server/src/runner/` and `server/test/runner/`. Read `CONTRACTS.md`, `sh
 
 Credits: $500 are on the team account; `FREESTYLE_API_KEY` is in the repo `.env`. Delete every VM you create in tests and scripts (try/finally). Never print the key.
 
+## Verified against the installed SDK (freestyle 0.2.20, 17.10)
+
+- `client.vms.create(options)` where `firewall: FirewallSpec` is a **required** field. Exact shapes (from `node_modules/freestyle/dist/firewall.d.ts`): no network at all = `firewall: { rules: [] }`; outbound public internet = `firewall: { rules: [{ action: "allow", source: {}, destination: { public: true } }] }`. `prepare` needs the outbound rule for `npm install`; test VMs use `rules: []`.
+- Other fields you will use: `snapshotId`, `idleTimeoutSeconds`, `autoDeleteSeconds`, `ttlSeconds`, `slug`, `metadata`.
+- VM handle: `exec(string | ExecOptions)`, `snapshot(options?)`, `pause()`, `start()`, `delete()`, `fs.writeFile(path, string | Blob)`, `fs.readFile(path)`.
+- `client.vms.snapshots.{get,list,delete}` and `client.vms.{get,list,delete}(vmIdOrSlug)`.
+
 ## Goal
 
 Run tests and commands on any set of files, locally or in Freestyle VMs, and find which change set (or pair) broke the tests by running variants in parallel.
