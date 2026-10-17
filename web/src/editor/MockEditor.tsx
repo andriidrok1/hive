@@ -17,7 +17,7 @@ export function MockEditor({ content, intents }: { content: string; intents: Int
             {starting.map((r) => (
               <span key={r.intent.id} className="intent-label" style={{ ["--c" as string]: r.color }}>
                 <span className="pill">{r.intent.id}</span>
-                {r.label}
+                <span className="what">{r.label}</span>
               </span>
             ))}
             <span className={`ln${top ? " hl" : ""}`} style={top ? { ["--c" as string]: top.color } : undefined}>

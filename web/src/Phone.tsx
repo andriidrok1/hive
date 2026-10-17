@@ -1,8 +1,15 @@
 import { useEffect, useState } from "react";
+import { MessageSquare, Zap } from "lucide-react";
 import { connectLive, createStore, startMock, useHive } from "./store";
 import { isMock, loadHumanId, saveHumanId } from "./env";
 import { sendNote, setMockSink } from "./api";
 import { ContractsTab } from "./components/ContractsTab";
+import { Badge } from "./components/ui/badge";
+import { Button } from "./components/ui/button";
+import { Card } from "./components/ui/card";
+import { Input } from "./components/ui/input";
+import { Textarea } from "./components/ui/textarea";
+import { TooltipProvider } from "./components/ui/tooltip";
 
 // /m: contracts with big edit buttons plus a note box. No editor.
 export function Phone() {
@@ -41,49 +48,61 @@ export function Phone() {
   };
 
   return (
-    <div className="phone">
-      <h1>
-        Hive<span>.</span> <span className={`badge ${state.mode}`}>{state.mode}</span>{" "}
-        <span className="muted" style={{ fontSize: 14 }}>
-          rev {state.rev} · {state.connection}
-        </span>
-      </h1>
-      <label className="muted" style={{ display: "flex", gap: 8, alignItems: "center" }}>
-        you
-        <input
-          value={humanId}
-          onChange={(e) => {
-            setHumanId(e.target.value);
-            saveHumanId(e.target.value);
-          }}
-          style={{ flex: 1 }}
-        />
-      </label>
-
-      <div className="notebox">
-        <b>Note to an agent</b>
-        <select value={target} onChange={(e) => setTo(e.target.value)} aria-label="agent">
-          {state.agents.length === 0 && <option value="">no agents running</option>}
-          {state.agents.map((a) => (
-            <option key={a.agentId} value={a.agentId}>
-              {a.agentId} ({a.humanId}, {a.status})
-            </option>
-          ))}
-        </select>
-        <textarea rows={3} value={text} onChange={(e) => setText(e.target.value)} placeholder="Put tax in applyTax, not in calculateTotal" />
-        <div className="buttons">
-          <button className="primary" disabled={!target || !text.trim()} onClick={() => void send(false)}>
-            Send note
-          </button>
-          <button className="danger" disabled={!target || !text.trim()} onClick={() => void send(true)}>
-            Urgent
-          </button>
+    <TooltipProvider>
+      <div className="flex h-full flex-col gap-4 overflow-auto p-4 text-[15px]">
+        <div className="flex items-center gap-2">
+          <span className="text-[17px] font-semibold tracking-tight">Hive</span>
+          <Badge variant="outline" className="font-mono uppercase tracking-wide">
+            {state.mode}
+          </Badge>
+          <span className="ml-auto font-mono text-xs text-muted-foreground">
+            rev {state.rev} · {state.connection}
+          </span>
         </div>
-        {msg && <div className="muted">{msg}</div>}
-      </div>
+        <label className="flex items-center gap-3 text-sm text-muted-foreground">
+          you
+          <Input
+            className="h-10 font-mono text-[15px]"
+            value={humanId}
+            onChange={(e) => {
+              setHumanId(e.target.value);
+              saveHumanId(e.target.value);
+            }}
+          />
+        </label>
 
-      <h2 style={{ margin: 0, fontSize: 20 }}>Contracts</h2>
-      <ContractsTab intents={state.intents} conflictsOf={state.conflictsOf} humanId={humanId} big />
-    </div>
+        <Card className="gap-3 p-4">
+          <div className="text-[15px] font-semibold">Note to an agent</div>
+          <select
+            value={target}
+            onChange={(e) => setTo(e.target.value)}
+            aria-label="agent"
+            className="h-11 rounded-md border border-input bg-background px-3 font-mono text-[15px] text-foreground outline-none focus-visible:border-ring"
+          >
+            {state.agents.length === 0 && <option value="">no agents running</option>}
+            {state.agents.map((a) => (
+              <option key={a.agentId} value={a.agentId}>
+                {a.agentId} ({a.humanId}, {a.status})
+              </option>
+            ))}
+          </select>
+          <Textarea rows={3} className="text-[15px]" value={text} onChange={(e) => setText(e.target.value)} placeholder="Put tax in applyTax, not in calculateTotal" />
+          <div className="flex gap-2">
+            <Button size="lg" className="flex-1" disabled={!target || !text.trim()} onClick={() => void send(false)}>
+              <MessageSquare />
+              Send note
+            </Button>
+            <Button size="lg" variant="outline" className="flex-1" disabled={!target || !text.trim()} onClick={() => void send(true)}>
+              <Zap />
+              Urgent
+            </Button>
+          </div>
+          {msg && <div className="text-sm text-muted-foreground">{msg}</div>}
+        </Card>
+
+        <div className="text-[15px] font-semibold">Contracts</div>
+        <ContractsTab intents={state.intents} conflictsOf={state.conflictsOf} humanId={humanId} big />
+      </div>
+    </TooltipProvider>
   );
 }
