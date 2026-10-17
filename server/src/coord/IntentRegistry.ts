@@ -185,7 +185,7 @@ export class IntentRegistry {
     const related = this.relatedSymbols(intent.target.symbol);
     const candidates = others.filter((o) => this.isStanding(o, now) && !flagged.has(o.id) && related.has(o.target.symbol));
     if (candidates.length > 0) {
-      const verdict = await this.askContradiction(intent, candidates);
+      const verdict = await this.askContradiction(intent, candidates, related);
       if (verdict.conflict) {
         let hit = candidates.filter((c) => verdict.with.includes(c.id));
         if (hit.length === 0) hit = candidates;
@@ -247,25 +247,72 @@ export class IntentRegistry {
     if (intent.status === "approved") this.approvedAt.set(intent.id, intent.createdAt);
   }
 
-  /** The symbol itself, its callers and its callees. */
-  private relatedSymbols(symbol: string): Set<string> {
-    const out = new Set<string>([symbol]);
-    for (const c of this.deps.graph.callersOf(symbol)) if (c.caller) out.add(c.caller);
-    for (const callee of this.deps.graph.calleesOf(symbol)) out.add(callee);
+  /**
+   * Symbols related to `symbol` through the call graph (up to two hops), with the relation seen from
+   * the new intent's target: "<symbol> CALLS <other>", "<symbol> IS CALLED BY <other>", "SAME SYMBOL".
+   */
+  relatedSymbols(symbol: string): Map<string, string[]> {
+    const out = new Map<string, string[]>();
+    const add = (other: string, relation: string) => {
+      const list = out.get(other) ?? [];
+      if (!list.includes(relation)) list.push(relation);
+      out.set(other, list);
+    };
+    add(symbol, "SAME SYMBOL");
+    const graph = this.deps.graph;
+    const callersOf = (s: string) => [...new Set(graph.callersOf(s).map((c) => c.caller).filter((c): c is string => c !== null))];
+    const callees = graph.calleesOf(symbol);
+    const callers = callersOf(symbol);
+    // direct relations first so they lead in the prompt, then the second hop
+    for (const callee of callees) add(callee, `${symbol} CALLS ${callee}`);
+    for (const caller of callers) add(caller, `${symbol} IS CALLED BY ${caller}`);
+    for (const callee of callees) {
+      for (const deeper of graph.calleesOf(callee)) if (deeper !== symbol) add(deeper, `${symbol} CALLS ${deeper} indirectly (via ${callee})`);
+    }
+    for (const caller of callers) {
+      for (const higher of callersOf(caller)) if (higher !== symbol) add(higher, `${symbol} IS CALLED BY ${higher} indirectly (via ${caller})`);
+    }
     return out;
   }
 
-  private async askContradiction(intent: Intent, candidates: Intent[]): Promise<{ conflict: boolean; with: string[]; reason: string }> {
-    const describe = (i: Intent) => ({ id: i.id, agent: i.agentId, status: i.status, target: `${i.target.file}#${i.target.symbol}`, action: i.action, what: i.what, input: i.input, output: i.output });
-    const user = JSON.stringify(
-      {
-        new_intent: describe(intent),
-        existing_intents: candidates.map(describe),
-        instructions: "Report a conflict only if the new intent's promised output cannot hold together with an existing intent's promise. `with` lists the ids of the existing intents it contradicts.",
-      },
-      null,
-      2,
+  /** The user message of the contradiction check. Full outputs, never truncated. */
+  contradictionPrompt(intent: Intent, candidates: Intent[], related: Map<string, string[]>): string {
+    const target = (i: Intent) => `${i.target.symbol} in ${i.target.file}`;
+    const lines = [
+      "NEW INTENT",
+      `id: ${intent.id} (agent ${intent.agentId})`,
+      `target: ${target(intent)}`,
+      `action: ${intent.action}`,
+      `what: ${intent.what}`,
+      `input: ${intent.input}`,
+      `promised output: ${intent.output}`,
+      `check: ${intent.check?.trim() ? intent.check : "(none)"}`,
+      "",
+      "EXISTING INTENTS WHOSE PROMISES STAND",
+    ];
+    for (const c of candidates) {
+      const relations = related.get(c.target.symbol) ?? ["related"];
+      lines.push(
+        "",
+        `id: ${c.id} (agent ${c.agentId})`,
+        `target: ${target(c)}`,
+        `status: ${c.status}`,
+        `relation: ${relations.join("; ")}`,
+        `what: ${c.what}`,
+        `promised output: ${c.output}`,
+      );
+    }
+    lines.push(
+      "",
+      "If both promises hold at once, would any effect be applied twice, cancelled, or produce different numbers for the same input?",
+      "Answer JSON {conflict, with: [ids], reason (one sentence citing both promises)}.",
     );
+    return lines.join("\n");
+  }
+
+  private async askContradiction(intent: Intent, candidates: Intent[], related: Map<string, string[]>): Promise<{ conflict: boolean; with: string[]; reason: string }> {
+    const user = this.contradictionPrompt(intent, candidates, related);
+    const started = Date.now();
     try {
       const raw = await this.deps.llm.json<{ conflict?: unknown; with?: unknown; reason?: unknown }>(CHECK_PROMPTS.contradiction, user, "{conflict: boolean, with: string[], reason: string}");
       return {
@@ -273,8 +320,10 @@ export class IntentRegistry {
         with: Array.isArray(raw?.with) ? raw.with.filter((x): x is string => typeof x === "string") : [],
         reason: typeof raw?.reason === "string" && raw.reason ? raw.reason : "promised behaviors contradict",
       };
-    } catch {
-      // Fail open: a dead check must not block the whole hive.
+    } catch (e) {
+      // Fail open: a dead check must not block the whole hive. Leave a trace in the feed and the log.
+      console.warn(`[coord] contradiction check failed for ${intent.id} (candidates ${candidates.map((c) => c.id).join(", ")}); approving without it:`, e instanceof Error ? e.message : e);
+      this.deps.onEvent({ type: "llm_call", purpose: "check:contradiction:failed", model: "unknown", ms: Date.now() - started, tokensIn: 0, tokensOut: 0 });
       return { conflict: false, with: [], reason: "" };
     }
   }

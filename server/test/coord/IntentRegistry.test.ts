@@ -110,6 +110,66 @@ describe("IntentRegistry", () => {
     expect(briefings.takeUndelivered(B).map((x) => x.kind)).toEqual(["intent_conflict"]);
   });
 
+  it("8e. double-tax case: the prompt names the CALLS relation and both full outputs; a dead check leaves a trace", async () => {
+    const SUMMARY_TS = `import { applyTax, calculateTotal } from "./checkout.js";
+import type { Item, Promo } from "./types.js";
+
+export function orderSummary(items: Item[], promo: Promo | undefined, state: string): { total: number } {
+  return { total: applyTax(calculateTotal(items, promo), state) };
+}
+`;
+    const a1Output = "calculateTotal returns the discounted subtotal including sales tax";
+    const m2Output = "total equals applyTax(calculateTotal(items, promo), state)";
+    let prompt = "";
+    const { intents, sink, graph, reads, briefings } = setup({
+      files: { "src/checkout.ts": CHECKOUT_TS, "src/summary.ts": SUMMARY_TS },
+      conflict: (user) => {
+        prompt = user;
+        return true;
+      },
+    });
+    const a1 = await intents.declare(A, "andrii", calc({ what: "include sales tax in the total", output: a1Output }), 1);
+    expect(a1.status).toBe("approved");
+    intents.setStatus("A1", "in_progress");
+    const m2 = await intents.declare(
+      M,
+      "masha",
+      { target: { file: "src/summary.ts", symbol: "orderSummary" }, action: "modify", what: "compute the taxed order total", input: "items, promo, state", output: m2Output, check: "expect(orderSummary(items, undefined, 'CA').total).toBe(1073)" },
+      2,
+    );
+    expect(m2.status).toBe("conflict");
+    expect(m2.conflicts).toEqual([{ intentId: "A1", kind: "contradiction", reason: "promises contradict" }]);
+
+    expect(prompt).toContain("orderSummary CALLS calculateTotal");
+    expect(prompt).toContain(`promised output: ${a1Output}`);
+    expect(prompt).toContain(`promised output: ${m2Output}`);
+    expect(prompt).toContain("check: expect(orderSummary(items, undefined, 'CA').total).toBe(1073)");
+    expect(prompt).toContain("status: in_progress");
+    expect(prompt).toContain("would any effect be applied twice, cancelled, or produce different numbers for the same input?");
+    expect(prompt).not.toMatch(/…/);
+
+    // relations: direct callees/callers plus two hops, with the direction spelled out from the new target
+    const rel = intents.relatedSymbols("orderSummary");
+    expect(rel.get("calculateTotal")).toEqual(["orderSummary CALLS calculateTotal", "orderSummary CALLS calculateTotal indirectly (via applyTax)"]);
+    expect(rel.get("applyTax")).toEqual(["orderSummary CALLS applyTax"]);
+    expect(rel.get("applyDiscount")).toEqual(["orderSummary CALLS applyDiscount indirectly (via calculateTotal)"]);
+    expect(intents.relatedSymbols("calculateTotal").get("orderSummary")?.sort()).toEqual([
+      "calculateTotal IS CALLED BY orderSummary",
+      "calculateTotal IS CALLED BY orderSummary indirectly (via applyTax)",
+    ]);
+
+    // a dead LLM: approved (fail open) but an llm_call with purpose check:contradiction:failed is emitted
+    const broken = new IntentRegistry({ llm: new FakeLLM(() => { throw new Error("timeout"); }), graph, reads, briefings, onEvent: sink.onEvent, mode: "hive" });
+    await broken.declare(A, "andrii", calc({ output: a1Output }), 1);
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    sink.events.length = 0;
+    const r = await broken.declare(M, "masha", { target: { file: "src/summary.ts", symbol: "orderSummary" }, action: "modify", what: "compute the taxed order total", input: "items", output: m2Output }, 2);
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    warnSpy.mockRestore();
+    expect(r.status).toBe("approved");
+    expect(sink.ofType("llm_call")).toEqual([{ type: "llm_call", purpose: "check:contradiction:failed", model: "unknown", ms: expect.any(Number), tokensIn: 0, tokensOut: 0 }]);
+  });
+
   it("9. no contradiction when the LLM says false; unrelated symbols never reach the LLM", async () => {
     const { intents, llm } = setup({ conflict: false });
     await intents.declare(B, "boris", tax(), 1);
@@ -148,7 +208,7 @@ describe("IntentRegistry", () => {
     expect(m.status).toBe("approved");
     expect(m.conflicts).toEqual([]);
     expect(llm.calls).toHaveLength(1);
-    expect(llm.calls[0]?.user).toContain('"status": "failed"');
+    expect(llm.calls[0]?.user).toContain("status: failed");
 
     // contradiction: A1 failed on calculateTotal (now includes tax); M declares on a caller -> conflict that lazy
     // reconciliation does NOT clear (failed is standing); cancelling A1 clears it
@@ -295,7 +355,7 @@ describe("IntentRegistry", () => {
 
   it("11b. stays in conflict while another blocking intent is active", async () => {
     // the LLM only flags boris's intent as contradicting
-    const { intents, briefings, sink } = setup({ conflict: (user) => user.includes(`"agent": "${B}"`) && user.indexOf(`"agent": "${B}"`) < user.indexOf("existing_intents") });
+    const { intents, briefings, sink } = setup({ conflict: (user) => user.startsWith(`NEW INTENT\nid: B1 (agent ${B})`) });
     await intents.declare("agent-carl", "carl", tax(), 1); // C1 approved (nothing related yet)
     await intents.declare(A, "andrii", calc(), 1); // A1 approved (LLM says no)
     const b = await intents.declare(B, "boris", calc(), 2); // same_target A1 + contradiction C1
