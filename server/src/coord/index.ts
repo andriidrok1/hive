@@ -1,0 +1,13 @@
+export { analyzeFile, normalizeCode, symbolText, symbolSources, symbolsInRange, parseSource } from "./analyze.js";
+export type { FileAnalysis, SymbolSource } from "./analyze.js";
+export { ChangeWatcher, diffSymbols } from "./ChangeWatcher.js";
+export type { ChangeWatcherDeps, SymbolChange } from "./ChangeWatcher.js";
+export { Mailbox, MAX_EXCHANGES } from "./Mailbox.js";
+export { CallGraph } from "./CallGraph.js";
+export { BriefingQueue, clip } from "./BriefingQueue.js";
+export { IntentRegistry, validateIntentInput, isVagueOutput } from "./IntentRegistry.js";
+export type { IntentRegistryDeps } from "./IntentRegistry.js";
+export { OpenAILLM, FakeLLM, noopLLM, CHECK_PROMPTS } from "./llm.js";
+export type { OpenAILLMOptions, LLMTiming } from "./llm.js";
+export { badArgs } from "./deps.js";
+export type { ReadLogLike, StoreChange } from "./deps.js";
