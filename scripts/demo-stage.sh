@@ -8,7 +8,7 @@ BASE=${HIVE_URL:-http://localhost:4317}
 MODE=${HIVE_MODE:-hive}
 
 ALEX_TASK='In src/order.ts add two exported functions and tests for both in test/order.test.ts. (1) receipt(items, promo?) returns one string: the lines of orderSummary(items, promo) joined with "\n", with an extra first line "Items: N" where N is the total quantity. (2) receiptWidth(items, promo?) returns the length of the longest line of receipt(items, promo). Cover: empty cart, one item without promo, two items with a percent promo. You own the new functions receipt and receiptWidth and their tests; do not change orderSummary itself.'
-NIKA_TASK='In src/format.ts make formatPrice handle negative cents by returning the sign before the dollar ("-$1.50" for -150) and add an exported helper alignMoney(label, cents, width) that returns the label, spaces, and formatPrice(cents) right-aligned to the given total width. Add tests for both in test/format.test.ts. You own src/format.ts and test/format.test.ts.'
+NIKA_TASK='In src/format.ts make formatPrice handle negative cents by returning the sign before the dollar ("-$1.50" for -150) and add an exported function formatPercent(value) that returns the number followed by a percent sign, without decimals for whole numbers ("10%" for 10, "7.5%" for 7.5). Add tests for both in test/format.test.ts. You own src/format.ts and test/format.test.ts.'
 ANDRII_TASK='In src/order.ts add an exported helper discountLine(subtotalCents, promo?) that returns the string "Discount -$x.xx" for a promo (use applyDiscount and formatPrice) or null when there is no promo, and make orderSummary use it for its Discount line instead of formatting inline. Add tests for discountLine in test/order.test.ts. You own discountLine and orderSummary.'
 
 post() {
