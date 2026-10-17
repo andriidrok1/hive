@@ -38,7 +38,8 @@ export class FeedCounters {
       case "intent_declared":
         this.intentsDeclared++;
         this.intentOwner.set(e.intent.id, e.intent.agentId);
-        if (e.conflicts.length > 0) this.conflictsCaught++;
+        // Caught before any code: the registry reports conflicts on the event and marks the intent "conflict".
+        if ((e.conflicts?.length ?? 0) > 0 || e.intent.status === "conflict") this.conflictsCaught++;
         break;
       case "edit_applied":
         this.edits++;
