@@ -454,6 +454,97 @@ describe("runAgent: premature final message nudge", () => {
   });
 });
 
+describe("runAgent: wait for conflict approval instead of giving up", () => {
+  const target = { file: "src/checkout.ts", symbol: "calculateTotal" };
+  const declareArgs = { target, action: "modify", what: "add shipping", input: "items", output: "subtotal plus shipping in cents" };
+  const conflictData = { intent: { id: "M1", target, status: "conflict" }, status: "conflict", conflicts: [{ intentId: "A1", kind: "same_target", reason: "same symbol" }], dependents: [] };
+  const approvedBriefing = briefing({ id: "br_ok", kind: "intent_conflict", fromAgent: undefined, summary: "Intent M1 is now approved: A1 finished.", details: { intentId: "M1", ...target }, requiresAck: false });
+
+  it("polls list_files until the approval briefing, then continues with the approved message", async () => {
+    let polls = 0;
+    const hive = new FakeHive((tool) => {
+      if (tool === "declare_intent") return { data: conflictData };
+      if (tool === "list_files") {
+        polls += 1;
+        if (polls === 2) return { briefings: [approvedBriefing] };
+      }
+      return undefined;
+    });
+    const ai = new FakeOpenAI([
+      { tool: "declare_intent", args: declareArgs },
+      { tool: "ask_agent", args: { to: "agent-andrii", about: "A1", question: "when will A1 close?" } },
+      { text: "Blocked by A1, stopping here." },
+      { tool: "edit_region", args: { intentId: "M1", path: "src/checkout.ts", oldText: "a", newText: "b" } },
+      { tool: "finish_intent", args: { intentId: "M1" } },
+      { text: "Shipped." },
+    ]);
+    const t0 = Date.now();
+    const res = await runAgent({ ...base, client: hive, openai: ai.asOpenAI(), conflictPollMs: 10, conflictWaitMs: 5000 });
+    expect(res.status).toBe("done");
+    expect(res.finalMessage).toBe("Shipped.");
+    expect(Date.now() - t0).toBeLessThan(2000);
+    expect(hive.toolNames()).toEqual(["declare_intent", "ask_agent", "list_files", "list_files", "edit_region", "finish_intent"]);
+    const msgs = ai.requests[3]!.body.messages;
+    // the approval briefing text first, then the continue message, after the model's premature answer
+    expect(msgs.at(-3)).toMatchObject({ role: "assistant", content: "Blocked by A1, stopping here." });
+    expect(msgs.at(-2)!.role).toBe("user");
+    expect(msgs.at(-2)!.content).toContain("[br_ok] intent_conflict");
+    expect(msgs.at(-1)).toEqual({ role: "user", content: "Hive: your intent M1 is now approved; continue your task." });
+  });
+
+  it("times out and accepts the final message when no briefing arrives; only once per run", async () => {
+    const hive = new FakeHive((tool) => (tool === "declare_intent" ? { data: conflictData } : undefined));
+    const ai = new FakeOpenAI([{ tool: "declare_intent", args: declareArgs }, { text: "Blocked." }]);
+    const t0 = Date.now();
+    const res = await runAgent({ ...base, client: hive, openai: ai.asOpenAI(), conflictPollMs: 10, conflictWaitMs: 60 });
+    expect(res.status).toBe("done");
+    expect(res.finalMessage).toBe("Blocked.");
+    expect(Date.now() - t0).toBeGreaterThanOrEqual(55);
+    expect(hive.toolNames().filter((t) => t === "list_files").length).toBeGreaterThanOrEqual(3);
+    expect(ai.requests).toHaveLength(2);
+  });
+
+  it("an approved re-declare of the same target clears the conflict, so no wait happens", async () => {
+    let n = 0;
+    const hive = new FakeHive((tool) => (tool === "declare_intent" ? { data: ++n === 1 ? conflictData : { intent: { id: "M2", target, status: "approved" }, status: "approved", conflicts: [], dependents: [] } } : undefined));
+    const ai = new FakeOpenAI([{ tool: "declare_intent", args: declareArgs }, { tool: "declare_intent", args: declareArgs }, { text: "done" }]);
+    const res = await runAgent({ ...base, client: hive, openai: ai.asOpenAI(), conflictPollMs: 10, conflictWaitMs: 5000 });
+    expect(res.status).toBe("done");
+    expect(hive.toolNames()).toEqual(["declare_intent", "declare_intent"]);
+  });
+
+  it("conflict wait and red-tests nudge each happen once, wait first", async () => {
+    let polls = 0;
+    const hive = new FakeHive((tool) => {
+      if (tool === "declare_intent") return { data: conflictData };
+      if (tool === "run_tests") return { data: { ok: false, passed: 1, failed: 1, failures: [{ name: "t", message: "m" }], durationMs: 1 } };
+      if (tool === "list_files" && ++polls === 1) return { briefings: [approvedBriefing] };
+      return undefined;
+    });
+    const ai = new FakeOpenAI([
+      { tool: "run_tests", args: {} },
+      { tool: "declare_intent", args: declareArgs },
+      { text: "giving up 1" },
+      { text: "giving up 2" },
+      { text: "giving up 3" },
+    ]);
+    const res = await runAgent({ ...base, client: hive, openai: ai.asOpenAI(), conflictPollMs: 5, conflictWaitMs: 1000 });
+    expect(res.status).toBe("done");
+    expect(res.finalMessage).toBe("giving up 3");
+    expect(ai.requests[3]!.body.messages.at(-1)!.content).toContain("is now approved");
+    expect(ai.requests[4]!.body.messages.at(-1)!.content).toMatch(/^Hive: tests are still red/);
+  });
+
+  it("signal abort while waiting -> stopped", async () => {
+    const stop = new AbortController();
+    const hive = new FakeHive((tool) => (tool === "declare_intent" ? { data: conflictData } : undefined));
+    const ai = new FakeOpenAI([{ tool: "declare_intent", args: declareArgs }, { text: "Blocked." }]);
+    setTimeout(() => stop.abort(), 15);
+    const res = await runAgent({ ...base, client: hive, openai: ai.asOpenAI(), signal: stop.signal, conflictPollMs: 1000, conflictWaitMs: 5000 });
+    expect(res.status).toBe("stopped");
+  });
+});
+
 describe("runAgent: accounting (test 8)", () => {
   it("sums tokens and ms from usage fields and reports them per call", async () => {
     const events: AgentEvent[] = [];

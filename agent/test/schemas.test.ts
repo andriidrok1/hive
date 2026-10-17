@@ -68,6 +68,8 @@ describe("systemPrompt", () => {
     expect(p).toContain("Define any input data inline");
     expect(p).toContain("no imports, no describe/it wrappers");
     expect(p).toContain("fix the check by re-declaring");
+    expect(p).toContain("Do not re-declare the same target repeatedly");
+    expect(p).toContain("wait for Hive's approval briefing");
     expect(p.split(/\s+/).filter(Boolean).length).toBeLessThan(350);
   });
 

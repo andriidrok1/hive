@@ -1,5 +1,5 @@
 import type OpenAI from "openai";
-import type { AgentId, Briefing, HiveMode, HumanId, Rev, TestResult, ToolArgs, ToolName, ToolResponse } from "@hive/shared";
+import type { AgentId, Briefing, DeclareIntentResult, HiveMode, HumanId, IntentId, Rev, TestResult, ToolArgs, ToolName, ToolResponse } from "@hive/shared";
 import type { HiveClient } from "./client.js";
 import { systemPrompt } from "./prompt.js";
 import { TOOL_NAMES, TOOL_SCHEMAS, isToolName } from "./tools.js";
@@ -24,6 +24,10 @@ export interface RunOptions {
   // Contract says "low". The API rejects it for gpt-5.4-mini + function tools on Chat Completions
   // (400 "set reasoning_effort to 'none'"), so the loop falls back to "none" once per model and remembers it.
   reasoningEffort?: OpenAI.ReasoningEffort;
+  // When the model gives up while one of its intents is still in conflict, the loop waits for the
+  // server's approval briefing: poll list_files every conflictPollMs for up to conflictWaitMs (once per run).
+  conflictWaitMs?: number; // 90_000
+  conflictPollMs?: number; // 3_000
 }
 
 export interface RunResult {
@@ -51,7 +55,7 @@ function rejectsReasoningEffort(e: unknown): boolean {
   const message = String((e as { message?: unknown }).message ?? "");
   return status === 400 && /reasoning_effort/i.test(message);
 }
-export const DEFAULTS = { maxToolCalls: 40, maxMs: 15 * 60_000, maxTokens: 400_000, pauseMs: 2000 } as const;
+export const DEFAULTS = { maxToolCalls: 40, maxMs: 15 * 60_000, maxTokens: 400_000, pauseMs: 2000, conflictWaitMs: 90_000, conflictPollMs: 3_000 } as const;
 
 type Msg = OpenAI.Chat.ChatCompletionMessageParam;
 
@@ -106,6 +110,8 @@ export async function runAgent(opts: RunOptions): Promise<RunResult> {
   const maxMs = opts.maxMs ?? DEFAULTS.maxMs;
   const maxTokens = opts.maxTokens ?? DEFAULTS.maxTokens;
   const pauseMs = opts.pauseMs ?? DEFAULTS.pauseMs;
+  const conflictWaitMs = opts.conflictWaitMs ?? DEFAULTS.conflictWaitMs;
+  const conflictPollMs = opts.conflictPollMs ?? DEFAULTS.conflictPollMs;
   let reasoningEffort: OpenAI.ReasoningEffort = effortByModel.get(model) ?? opts.reasoningEffort ?? DEFAULT_REASONING_EFFORT;
   const { client, signal, interrupt, onEvent } = opts;
 
@@ -131,12 +137,55 @@ export async function runAgent(opts: RunOptions): Promise<RunResult> {
   let lastTests: TestResult | undefined;
   const unacked = new Map<string, Briefing>();
   let nudged = false;
+  // Intents this agent declared that came back "conflict", keyed by id, with their target so a
+  // later approved re-declare of the same target clears them. Cleared by the server's intent_conflict
+  // "now approved" briefing (requiresAck=false) as well.
+  const conflicting = new Map<IntentId, { file: string; symbol: string }>();
+  let waitedForConflict = false;
 
   function noteResponse(tool: ToolName, args: unknown, r: ToolResponse): void {
-    for (const b of r.briefings) if (b.requiresAck && !b.ack) unacked.set(b.id, b);
+    for (const b of r.briefings) {
+      if (b.requiresAck && !b.ack) unacked.set(b.id, b);
+      const id = b.details.intentId;
+      if (b.kind === "intent_conflict" && id && conflicting.has(id) && (!b.requiresAck || /approved/i.test(b.summary))) conflicting.delete(id);
+    }
     if (!r.ok) return;
     if (tool === "run_tests" && r.data && typeof r.data === "object" && "ok" in r.data) lastTests = r.data as TestResult;
     if (tool === "ack_briefing") unacked.delete(String((args as { briefingId?: unknown }).briefingId));
+    if (tool === "declare_intent" && r.data && typeof r.data === "object" && "intent" in r.data) {
+      const d = r.data as DeclareIntentResult;
+      const target = d.intent?.target ?? (args as { target?: { file: string; symbol: string } }).target;
+      if (d.status === "conflict" && d.intent?.id) conflicting.set(d.intent.id, { file: target?.file ?? "", symbol: target?.symbol ?? "" });
+      if (d.status === "approved" && target) {
+        for (const [id, t] of conflicting) if (t.file === target.file && t.symbol === target.symbol) conflicting.delete(id);
+      }
+    }
+    if (tool === "finish_intent") conflicting.delete(String((args as { intentId?: unknown }).intentId));
+  }
+
+  // The model gave up while an intent of its own is still in conflict: wait for the server's approval
+  // briefing. Returns the user message to continue with, or null to accept the final message.
+  async function waitForConflict(): Promise<string | null | "stop"> {
+    if (waitedForConflict || conflicting.size === 0) return null;
+    const remaining = maxMs - elapsed();
+    if (remaining <= conflictPollMs) return null;
+    waitedForConflict = true;
+    const ids = () => [...conflicting.keys()].join(", ");
+    const deadline = Date.now() + Math.min(conflictWaitMs, remaining);
+    emit({ type: "status", status: "thinking", step, waitingForIntents: ids() });
+    while (Date.now() < deadline) {
+      await sleep(Math.min(conflictPollMs, deadline - Date.now()), signal);
+      if (signal?.aborted) return "stop";
+      const r = await poke();
+      if (!r) continue;
+      if (r.control === "stop") return "stop";
+      if (r.briefings.length) {
+        // noteResponse (via poke) already cleared approved ids; the briefings themselves go out as pending.
+        if (conflicting.size === 0) return `Hive: your intent ${r.briefings.map((b) => b.details.intentId).filter(Boolean).join(", ") || "in conflict"} is now approved; continue your task.`;
+        return `Hive: a briefing arrived while your intent ${ids()} was in conflict; handle it and continue your task.`;
+      }
+    }
+    return null;
   }
 
   // Called when the model answers without tool calls. Returns the nudge text, or null to accept the answer.
@@ -287,9 +336,16 @@ export async function runAgent(opts: RunOptions): Promise<RunResult> {
     messages.push(assistant);
 
     if (calls.length === 0) {
-      const nudge = nudgeFor();
+      const waited = await waitForConflict();
+      if (waited === "stop") return finish("stopped");
+      const nudge = waited ?? nudgeFor();
       if (!nudge) return finish("done", { finalMessage: msg.content ?? "" });
       emit({ type: "status", status: "thinking", step, nudge });
+      if (pending.length) {
+        // briefings picked up while waiting go first, then the continue line
+        messages.push({ role: "user", content: formatBriefings(pending) });
+        pending = [];
+      }
       messages.push({ role: "user", content: nudge });
       continue;
     }
