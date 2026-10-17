@@ -48,7 +48,7 @@ export const TOOL_SCHEMAS: OpenAI.Chat.ChatCompletionTool[] = [
   ),
   tool(
     "declare_intent",
-    "Declare what you are about to change before editing. Hive checks it against other agents' intents and briefs dependents. Returns the intent id and status approved | conflict.",
+    "Declare what you are about to change before editing. Hive checks it against other agents' intents and briefs dependents. Returns the intent id and status approved | conflict. NOT_OWNER means the file belongs to another agent: do not retry, ask_agent the named owner.",
     {
       target: {
         type: "object",
@@ -67,7 +67,7 @@ export const TOOL_SCHEMAS: OpenAI.Chat.ChatCompletionTool[] = [
   ),
   tool(
     "edit_region",
-    "Replace exactly one occurrence of oldText with newText in the latest version of the file. Use a small unique oldText. On OLD_TEXT_NOT_FOUND, error.current holds the fresh file content: re-anchor and retry.",
+    "Replace exactly one occurrence of oldText with newText in the latest version of the file. Use a small unique oldText. On OLD_TEXT_NOT_FOUND, error.current holds the fresh file content: re-anchor and retry. NOT_OWNER means the file belongs to another agent: do not retry, ask_agent the named owner.",
     {
       intentId: str("The approved intent this edit belongs to (required in hive mode)"),
       path: str("File path"),
