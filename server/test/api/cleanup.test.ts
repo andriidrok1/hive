@@ -88,6 +88,52 @@ describe("open intents are closed when an agent run ends", () => {
     expect(t.hive.ctx.deps.history.changeSets().map((c) => c.id)).toEqual(["A1"]);
   });
 
+  it("failed intents of a terminated agent become done without another orchestrator run", async () => {
+    t = await makeHive({
+      runAgent: async (opts) => {
+        const a1 = await opts.client.call("declare_intent", GOOD_INTENT);
+        await opts.client.call("edit_region", { intentId: a1.data!.intent.id, path: "src/format.ts", oldText: "toFixed(2)", newText: "toFixed(3)" });
+        await opts.client.call("finish_intent", { intentId: a1.data!.intent.id });
+        return new Promise<AgentRunResult>((resolve) => {
+          opts.signal!.addEventListener("abort", () => resolve({ status: "stopped", toolCalls: 3, tokensIn: 0, tokensOut: 0, ms: 1 }), { once: true });
+        });
+      },
+    });
+    t.runner.result = { ok: false, passed: 0, failed: 1, failures: [{ name: "f", message: "m" }], durationMs: 1 };
+    await t.hive.built.app.inject({ method: "POST", url: "/api/agents", payload: { agentId: "agent-andrii", humanId: "andrii", task: "x" } });
+    await waitFor(() => t.hive.ctx.deps.intents.get("A1")?.status === "failed");
+    const orchestrator = t.hive.ctx.deps.orchestrator as FakeTestOrchestrator;
+    expect(orchestrator.finished).toEqual(["A1"]);
+
+    await t.hive.built.app.inject({ method: "POST", url: "/api/agents/agent-andrii/control", payload: { humanId: "andrii", control: "stop" } });
+    await waitFor(() => t.hive.agents.get("agent-andrii")?.status === "stopped");
+    expect(t.hive.ctx.deps.intents.get("A1")?.status).toBe("done");
+    expect(orchestrator.finished).toEqual(["A1"]); // not run again
+    expect(t.hive.ctx.deps.store.readFile("src/format.ts")?.content).toContain("toFixed(3)"); // edits stay
+    const statuses = t.events("intent_status").map((e) => (e.type === "intent_status" ? e.status : ""));
+    expect(statuses).toEqual(["in_progress", "done", "failed", "done"]);
+  });
+
+  it("finish_intent on an intent without edits cancels it (releases the target), no orchestrator run", async () => {
+    t = await makeHive();
+    register(t, "agent-andrii");
+    register(t, "agent-masha");
+    const a1 = await t.tool("agent-andrii", "declare_intent", GOOD_INTENT);
+    const m1 = await t.tool("agent-masha", "declare_intent", { ...GOOD_INTENT, what: "round calculateTotal to cents", output: "returns the discounted subtotal rounded to integer cents" });
+    expect(m1.data?.status).toBe("conflict");
+
+    const finished = await t.tool("agent-andrii", "finish_intent", { intentId: a1.data!.intent.id });
+    expect(finished.ok).toBe(true);
+    expect(finished.data?.intent.status).toBe("cancelled");
+    expect(t.hive.ctx.deps.intents.get(a1.data!.intent.id)?.status).toBe("cancelled");
+    expect((t.hive.ctx.deps.orchestrator as FakeTestOrchestrator).finished).toEqual([]);
+    expect(t.hive.ctx.deps.history.changeSets()).toEqual([]);
+    expect(t.hive.ctx.deps.intents.get(m1.data!.intent.id)?.status).toBe("approved");
+
+    const again = await t.tool("agent-andrii", "finish_intent", { intentId: a1.data!.intent.id });
+    expect(again.error?.code).toBe("INTENT_NOT_APPROVED");
+  });
+
   it("POST /api/test green without extraFiles saves a green snapshot; with extraFiles or red it does not", async () => {
     t = await makeHive({ mode: "naive" });
     register(t, "agent-andrii");

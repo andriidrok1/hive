@@ -152,8 +152,8 @@ export function createHive(opts: CreateHiveOptions): Hive {
     mode: () => ctx.deps.mode,
     onTerminal: (agentId: string) => {
       const closed = closeOpenIntents(ctx, tools, agentId);
-      if (closed.finished.length || closed.cancelled.length) {
-        console.log(`[hive] ${agentId} ended; finished ${closed.finished.join(",") || "-"}, cancelled ${closed.cancelled.join(",") || "-"}`);
+      if (closed.finished.length || closed.cancelled.length || closed.closedFailed.length) {
+        console.log(`[hive] ${agentId} ended; finished ${closed.finished.join(",") || "-"}, cancelled ${closed.cancelled.join(",") || "-"}, failed->done ${closed.closedFailed.join(",") || "-"}`);
       }
     },
     ...(opts.model ? { model: opts.model } : {}),

@@ -291,11 +291,15 @@ async function execute<T extends ToolName>(ctx: HiveContext, h: ToolHandlers, ag
       const intent = d.intents.get(a.intentId);
       if (!intent) throw new ToolError("NO_INTENT", `unknown intent ${a.intentId}`);
       if (intent.agentId !== agentId) throw new ToolError("NOT_YOUR_INTENT", `${a.intentId} belongs to ${intent.agentId}`);
-      if (!["approved", "in_progress", "conflict", "declared"].includes(intent.status)) {
+      if (intent.status === "in_progress") {
+        finishIntent(ctx, a.intentId, store.rev);
+      } else if (intent.status === "approved" || intent.status === "conflict" || intent.status === "declared") {
+        // No edits were made under this intent: finishing it releases the target instead of promising a change.
+        d.intents.setStatus(a.intentId, "cancelled");
+      } else {
         throw new ToolError("INTENT_NOT_APPROVED", `${a.intentId} is already ${intent.status}`);
       }
-      finishIntent(ctx, a.intentId, store.rev);
-      return { intent: d.intents.get(a.intentId) ?? { ...intent, status: "done" } } as ToolResults[T];
+      return { intent: d.intents.get(a.intentId) ?? intent } as ToolResults[T];
     }
 
     case "run_command": {
@@ -367,12 +371,14 @@ export function finishIntent(ctx: HiveContext, intentId: IntentId, rev: Rev): vo
 /**
  * When an agent run ends, close what it left open so other agents are not blocked forever:
  * in_progress (edits made, never finished) -> same path as finish_intent;
- * declared | approved | conflict (no edits yet) -> cancelled, which re-approves conflicting intents.
+ * declared | approved | conflict (no edits yet) -> cancelled, which re-approves conflicting intents;
+ * failed (verification failed, agent gave up) -> done, without re-running the orchestrator.
  */
-export function closeOpenIntents(ctx: HiveContext, h: ToolHandlers, agentId: AgentId): { finished: IntentId[]; cancelled: IntentId[] } {
+export function closeOpenIntents(ctx: HiveContext, h: ToolHandlers, agentId: AgentId): { finished: IntentId[]; cancelled: IntentId[]; closedFailed: IntentId[] } {
   const d = ctx.deps;
   const finished: IntentId[] = [];
   const cancelled: IntentId[] = [];
+  const closedFailed: IntentId[] = [];
   for (const intent of d.intents.list()) {
     if (intent.agentId !== agentId) continue;
     if (intent.status === "in_progress") {
@@ -381,9 +387,13 @@ export function closeOpenIntents(ctx: HiveContext, h: ToolHandlers, agentId: Age
     } else if (intent.status === "approved" || intent.status === "conflict" || intent.status === "declared") {
       d.intents.setStatus(intent.id, "cancelled");
       cancelled.push(intent.id);
+    } else if (intent.status === "failed") {
+      // Nobody will fix it any more: its edits stay, the promise is closed as done so it stops blocking same-target intents.
+      d.intents.setStatus(intent.id, "done", { rev: h.storeFor(agentId).rev });
+      closedFailed.push(intent.id);
     }
   }
-  return { finished, cancelled };
+  return { finished, cancelled, closedFailed };
 }
 
 /** Mode and intent checks before an edit. Returns the intentId to attribute the edit to (if any). */
