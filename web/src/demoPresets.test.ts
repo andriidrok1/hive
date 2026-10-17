@@ -53,5 +53,10 @@ describe("spawnDemoAgents", () => {
     expect(DEMO_PRESETS[1]?.task).toContain("orderSummaryWithTax(items, promo, state)");
     expect(DEMO_PRESETS[1]?.task).toContain("import applyTax from ./tax.js");
     expect(DEMO_PRESETS[1]?.task).toContain("do not change orderSummary itself");
+    // Each agent writes its own new test file, so test/order.test.ts is never edited by two agents.
+    expect(DEMO_PRESETS[0]?.task).toContain("a NEW file test/receipt.test.ts");
+    expect(DEMO_PRESETS[1]?.task).toContain("a NEW file test/order-tax.test.ts (CA and OR)");
+    expect(DEMO_PRESETS[1]?.task).toContain("You own taxLine, orderSummaryWithTax and test/order-tax.test.ts");
+    expect(DEMO_PRESETS.some((p) => p.task.includes("tests for both in test/order.test.ts"))).toBe(false);
   });
 });

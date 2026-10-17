@@ -15,14 +15,14 @@ export const DEMO_PRESETS: DemoPreset[] = [
     humanId: "alex",
     title: "Receipt and receipt width in order.ts",
     task:
-      'In src/order.ts add two exported functions and tests for both in test/order.test.ts. (1) receipt(items, promo?) returns one string: the lines of orderSummary(items, promo) joined with "\\n", with an extra first line "Items: N" where N is the total quantity. (2) receiptWidth(items, promo?) returns the length of the longest line of receipt(items, promo). Cover: empty cart, one item without promo, two items with a percent promo. You own the new functions receipt and receiptWidth and their tests; do not change orderSummary itself.',
+      'In src/order.ts add two exported functions and tests for both in a NEW file test/receipt.test.ts. (1) receipt(items, promo?) returns one string: the lines of orderSummary(items, promo) joined with "\\n", with an extra first line "Items: N" where N is the total quantity. (2) receiptWidth(items, promo?) returns the length of the longest line of receipt(items, promo). Cover: empty cart, one item without promo, two items with a percent promo. You own the new functions receipt and receiptWidth and their tests; do not change orderSummary itself.',
   },
   {
     agentId: "agent-nika",
     humanId: "nika",
     title: "Tax line and taxed summary in order.ts",
     task:
-      'In src/order.ts add two exported functions: taxLine(totalCents, state) that returns the string "Tax $x.xx" where the tax is applyTax(totalCents, state) - totalCents (import applyTax from ./tax.js), and orderSummaryWithTax(items, promo, state) that calls orderSummary(items, promo), appends the tax line before the Total line, and returns the summary with total including tax. Add tests for both in test/order.test.ts (CA and OR). You own taxLine and orderSummaryWithTax and their tests; do not change orderSummary itself.',
+      'In src/order.ts add two exported functions: taxLine(totalCents, state) that returns the string "Tax $x.xx" where the tax is applyTax(totalCents, state) - totalCents (import applyTax from ./tax.js), and orderSummaryWithTax(items, promo, state) that calls orderSummary(items, promo), appends the tax line before the Total line, and returns the summary with total including tax. Add tests for both in a NEW file test/order-tax.test.ts (CA and OR). You own taxLine, orderSummaryWithTax and test/order-tax.test.ts; do not change orderSummary itself.',
   },
 ];
 
