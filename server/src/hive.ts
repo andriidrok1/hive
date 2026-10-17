@@ -144,6 +144,17 @@ export function createHive(opts: CreateHiveOptions): Hive {
       hub.bind(ctx.deps.store.ydoc); // closes Yjs clients; they reconnect and sync the fresh doc
     },
   };
+  ctx.presence = {
+    update(agentId, path, index) {
+      const rec = ctx.agents.get(agentId);
+      const cursor = hub.cursorAt(path, index);
+      if (!rec || !cursor) return;
+      hub.setAgentPresence(agentId, { user: { name: agentId, color: rec.color ?? "#7c5cff", kind: "agent" }, cursor });
+    },
+    clear(agentId) {
+      hub.setAgentPresence(agentId, null);
+    },
+  };
   const tools = toolHandlers(ctx);
   const managerOpts = {
     runAgent: opts.runAgent ?? (realRunAgent as RunAgentFn),
@@ -152,6 +163,7 @@ export function createHive(opts: CreateHiveOptions): Hive {
     briefings: () => ctx.deps.briefings,
     mode: () => ctx.deps.mode,
     onTerminal: (agentId: string) => {
+      ctx.presence?.clear(agentId);
       const closed = closeOpenIntents(ctx, tools, agentId);
       if (closed.finished.length || closed.cancelled.length || closed.closedFailed.length) {
         console.log(`[hive] ${agentId} ended; finished ${closed.finished.join(",") || "-"}, cancelled ${closed.cancelled.join(",") || "-"}, failed->done ${closed.closedFailed.join(",") || "-"}`);

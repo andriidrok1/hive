@@ -140,6 +140,8 @@ export interface AgentRecord {
   control: AgentControl;
   /** Ownership zone: project-relative paths or directory prefixes ending with "/". Absent = unrestricted. */
   owns?: string[];
+  /** Caret color in the web editor, assigned in order of start. */
+  color?: string;
 }
 
 export interface AgentManagerLike {
@@ -185,9 +187,18 @@ export interface HiveDeps {
  * What buildApp needs: the current deps plus a way to rebuild them (POST /api/reset).
  * `deps` is replaced on reset, so route handlers always read `ctx.deps` at call time.
  */
+/** Agent carets in the shared editor (Yjs awareness). Optional: tests without a hub skip it. */
+export interface PresenceLike {
+  /** Place the agent's caret at `index` of `path` in the main doc (after an edit or at the start of a read). */
+  update(agentId: AgentId, path: string, index: number): void;
+  /** Remove the caret (terminal status). */
+  clear(agentId: AgentId): void;
+}
+
 export interface HiveContext {
   deps: HiveDeps;
   agents: AgentManagerLike;
+  presence?: PresenceLike;
   reset(mode?: HiveMode): Promise<void>;
 }
 

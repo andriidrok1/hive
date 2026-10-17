@@ -274,6 +274,7 @@ async function execute<T extends ToolName>(ctx: HiveContext, h: ToolHandlers, ag
       }
       d.reads.record(agentId, a.path, file.rev, symbols.map((s) => s.name));
       d.emitter.emit({ type: "file_read", agentId, path: a.path, rev: file.rev });
+      if (store === d.store) ctx.presence?.update(agentId, a.path, lines.slice(0, start - 1).reduce((n, l) => n + l.length + 1, 0));
       const activeIntents = activeIntentsFor(d, a.path);
       const out: ToolResults["read_file"] & { activeIntents?: ActiveIntent[]; note?: string } = { path: a.path, rev: file.rev, content, symbols };
       if (activeIntents.length > 0) {
@@ -297,9 +298,11 @@ async function execute<T extends ToolName>(ctx: HiveContext, h: ToolHandlers, ag
       const a = args as ToolArgs["edit_region"];
       requireOwnership(ctx, agentId, a.path);
       const intentId = gateEdit(ctx, agentId, a.intentId);
+      const at = store.readFile(a.path)?.content.indexOf(a.oldText) ?? -1;
       const r = store.editRegion(intentId ? { actor: agentId, intentId, path: a.path, oldText: a.oldText, newText: a.newText } : { actor: agentId, path: a.path, oldText: a.oldText, newText: a.newText });
       if (!r.ok) throw new ToolError(r.code, editMessage(r.code, a.path), r.current);
       markInProgress(ctx, intentId);
+      if (store === d.store && at >= 0) ctx.presence?.update(agentId, a.path, at + a.newText.length);
       return { path: a.path, rev: r.rev } as ToolResults[T];
     }
 
@@ -310,6 +313,7 @@ async function execute<T extends ToolName>(ctx: HiveContext, h: ToolHandlers, ag
       const r = store.createFile(intentId ? { actor: agentId, intentId, path: a.path, content: a.content } : { actor: agentId, path: a.path, content: a.content });
       if (!r.ok) throw new ToolError("BAD_ARGS", `cannot create ${a.path}: it exists or the path is not inside the project`);
       markInProgress(ctx, intentId);
+      if (store === d.store) ctx.presence?.update(agentId, a.path, a.content.length);
       return { path: a.path, rev: r.rev } as ToolResults[T];
     }
 

@@ -21,9 +21,10 @@ export function hiveState(ctx: HiveContext): HiveState {
     rev: d.store.rev,
     files: d.store.listFiles(),
     agents: ctx.agents.list().map((a) => {
-      const row: HiveState["agents"][number] & { owns?: string[] } = { agentId: a.agentId, humanId: a.humanId, status: a.status, control: a.control };
+      const row: HiveState["agents"][number] & { owns?: string[]; color?: string } = { agentId: a.agentId, humanId: a.humanId, status: a.status, control: a.control };
       if (a.task !== undefined) row.task = a.task;
       if (a.owns !== undefined) row.owns = [...a.owns];
+      if (a.color !== undefined) row.color = a.color;
       return row;
     }),
     intents: d.intents.list(),

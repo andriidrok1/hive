@@ -102,6 +102,50 @@ describe("websockets", () => {
     expect(doc2.getMap<Y.Text>("files").get("src/format.ts")?.toString()).toContain("typed by a human");
   });
 
+  it("agent carets: a connected client sees the agent's awareness state at its last edit; gone after terminal status", async () => {
+    t = await makeHive();
+    const base = await listen(t);
+    await t.hive.built.app.inject({ method: "POST", url: "/api/agents", payload: { agentId: "agent-andrii", humanId: "andrii", task: "wait" } });
+    const state = (await t.hive.built.app.inject({ method: "GET", url: "/api/state" })).json();
+    expect(state.agents[0].color).toBe("#7c5cff");
+
+    const doc = new Y.Doc();
+    const p = connectProvider(base, doc, { name: "human", color: "#fff", kind: "human" });
+    await synced(p);
+    const files = doc.getMap<Y.Text>("files");
+    await waitFor(() => files.get("src/format.ts") !== undefined);
+
+    type Presence = { user?: { name: string; color: string; kind: string }; cursor?: { anchor: unknown; head: unknown } };
+    const agentState = () => [...p.awareness.getStates().values()].find((s) => (s as Presence).user?.name === "agent-andrii") as Presence | undefined;
+
+    await t.tool("agent-andrii", "read_file", { path: "src/tax.ts", startLine: 3, endLine: 4 });
+    await waitFor(() => agentState() !== undefined);
+    expect(agentState()?.user).toEqual({ name: "agent-andrii", color: "#7c5cff", kind: "agent" });
+    const readPos = Y.createAbsolutePositionFromRelativePosition(Y.createRelativePositionFromJSON(agentState()!.cursor!.head), doc);
+    expect(readPos?.type).toBe(files.get("src/tax.ts"));
+    expect(readPos?.index).toBe((files.get("src/tax.ts")?.toString().split("\n").slice(0, 2).join("\n").length ?? 0) + 1);
+
+    const declared = await t.tool("agent-andrii", "declare_intent", { ...GOOD_INTENT, target: { file: "src/format.ts", symbol: "formatPrice" } });
+    await t.tool("agent-andrii", "edit_region", { intentId: declared.data!.intent.id, path: "src/format.ts", oldText: "toFixed(2)", newText: "toFixed(3)" });
+    const expectedIndex = () => (files.get("src/format.ts")?.toString().indexOf("toFixed(3)") ?? -1) + "toFixed(3)".length;
+    await waitFor(() => {
+      const st = agentState();
+      if (!st?.cursor) return false;
+      const abs = Y.createAbsolutePositionFromRelativePosition(Y.createRelativePositionFromJSON(st.cursor.head), doc);
+      return abs !== null && abs.type === files.get("src/format.ts") && abs.index === expectedIndex();
+    });
+    const anchor = Y.createAbsolutePositionFromRelativePosition(Y.createRelativePositionFromJSON(agentState()!.cursor!.anchor), doc);
+    expect(anchor?.index).toBe(expectedIndex());
+    expect(t.hive.hub.agentPresenceCount()).toBe(1);
+
+    await t.hive.built.app.inject({ method: "POST", url: "/api/agents/agent-andrii/control", payload: { humanId: "andrii", control: "stop" } });
+    await waitFor(() => t.hive.agents.get("agent-andrii")?.status === "stopped");
+    await waitFor(() => agentState() === undefined);
+    expect(t.hive.hub.agentPresenceCount()).toBe(0);
+    // the human's own state is untouched
+    expect([...p.awareness.getStates().values()].some((s) => (s as Presence).user?.name === "human")).toBe(true);
+  });
+
   it("12b. isolated mode: /yjs/project serves only the main store", async () => {
     t = await makeHive({ mode: "isolated" });
     register(t, "agent-andrii");
