@@ -95,6 +95,11 @@ export function createHive(opts: CreateHiveOptions): Hive {
       ? new m.TestOrchestrator(orchestratorDeps)
       : new TestOrchestrator({
           ...orchestratorDeps,
+          // Runner's HistoryLike expects openIntents() -> (id | { id })[]; core returns { intentId, agentId, files }[].
+          // Adapter until brief 04 aligns with core (it only reads the ids).
+          history: Object.assign(Object.create(history) as typeof history, {
+            openIntents: () => history.openIntents().map((o) => ({ id: o.intentId })),
+          }),
           culprit: new CulpritFinder(opts.runner, o.maxParallel ?? 8),
           ...(o.quietMs !== undefined ? { quietMs: o.quietMs } : {}),
           ...(o.maxQuietWaitMs !== undefined ? { maxQuietWaitMs: o.maxQuietWaitMs } : {}),

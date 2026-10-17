@@ -78,6 +78,10 @@ export interface HistoryLike {
   saveSnapshot(green: boolean): Snapshot;
   lastGreen(): Snapshot | undefined;
   changeSetsSince(rev: Rev): ChangeSet[];
+  /** Edits recorded so far for an intent that is begun but not finished, in order. */
+  openEdits(intentId: IntentId): ChangeSet["edits"];
+  /** Begun-but-unfinished intents (optionally of one agent). */
+  openIntents(agentId?: AgentId): { intentId: IntentId; agentId: AgentId; files: string[] }[];
 }
 
 // ---------- coord (brief 02) ----------
