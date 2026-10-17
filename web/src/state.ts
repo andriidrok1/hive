@@ -38,8 +38,17 @@ export interface TestsState {
 
 export type Connection = "mock" | "connecting" | "open" | "reconnecting";
 
+// Per-agent bookkeeping the HiveState agents list does not carry.
+export interface AgentMeta {
+  startedAt: number; // first agent_status seen
+  lastAt: number; // last event from this agent
+  step?: number; // last reported step
+  files: string[]; // recently edited files, newest first, max 4
+}
+
 export interface UiState extends HiveState {
   connection: Connection;
+  agentMeta: Record<AgentId, AgentMeta>;
   conflictsOf: Record<IntentId, IntentConflict[]>; // from intent_declared, for the resolve buttons
   events: FeedEvent[]; // newest first
   lastEventId: number;
@@ -68,6 +77,7 @@ export function initialUiState(h: HiveState = emptyHiveState): UiState {
     ...h,
     recentEvents: [],
     connection: "connecting",
+    agentMeta: {},
     conflictsOf: {},
     events: [],
     lastEventId: 0,
@@ -143,7 +153,12 @@ export function reduce(state: UiState, e: FeedEvent): UiState {
       const agents = base.agents.slice();
       if (i >= 0) agents[i] = next;
       else agents.push(next);
-      return { ...base, agents };
+      const meta = base.agentMeta[e.agentId];
+      const agentMeta = {
+        ...base.agentMeta,
+        [e.agentId]: { startedAt: meta?.startedAt ?? e.ts, lastAt: e.ts, step: e.step ?? meta?.step, files: meta?.files ?? [] },
+      };
+      return { ...base, agents, agentMeta };
     }
     case "file_read":
       return { ...base, actions: pushAction(base.actions, e.agentId, `read ${e.path} @${e.rev}`) };
@@ -169,11 +184,24 @@ export function reduce(state: UiState, e: FeedEvent): UiState {
       const intents = e.intentId
         ? base.intents.map((x) => (x.id === e.intentId && x.status === "approved" ? { ...x, status: "in_progress" as const, updatedAt: e.ts } : x))
         : base.intents;
+      const meta = base.agentMeta[e.agentId];
+      const agentMeta = isAgent
+        ? {
+            ...base.agentMeta,
+            [e.agentId]: {
+              startedAt: meta?.startedAt ?? e.ts,
+              lastAt: e.ts,
+              step: meta?.step,
+              files: [e.path, ...(meta?.files ?? []).filter((p) => p !== e.path)].slice(0, 4),
+            },
+          }
+        : base.agentMeta;
       return {
         ...base,
         rev: Math.max(base.rev, e.rev),
         files,
         intents,
+        agentMeta,
         actions: isAgent ? pushAction(base.actions, e.agentId, `edit ${e.path} +${e.added} -${e.removed}`) : base.actions,
       };
     }
@@ -265,6 +293,14 @@ export function intentsForFile(state: UiState, path: string): Intent[] {
   return state.intents.filter((i) => i.target.file === path && shown.includes(i.status));
 }
 
+// Files an agent is touching: its open intents' targets plus its recent edits.
+export function filesOfAgent(state: UiState, agentId: AgentId): string[] {
+  const out: string[] = [];
+  for (const i of state.intents) if (i.agentId === agentId && ACTIVE_INTENT.includes(i.status) && !out.includes(i.target.file)) out.push(i.target.file);
+  for (const p of state.agentMeta[agentId]?.files ?? []) if (!out.includes(p)) out.push(p);
+  return out.slice(0, 4);
+}
+
 export function unresolvedConflicts(state: UiState): Intent[] {
   return state.intents.filter((i) => i.status === "conflict");
 }
@@ -273,12 +309,15 @@ export function pendingBriefings(state: UiState): Briefing[] {
   return Object.values(state.briefings).filter((b) => b.requiresAck && !b.ack);
 }
 
-// Agent colour: stable per id, readable on dark.
-const PALETTE = ["#f5a524", "#3b9cff", "#ff5c8a", "#2dd4bf", "#c084fc", "#a3e635", "#fb923c", "#38bdf8"];
+// Agent colours by order of appearance: violet, blue, green, amber, then the rest.
+const PALETTE = ["#7c5cff", "#3b82f6", "#22c55e", "#f59e0b", "#ec4899", "#14b8a6", "#f97316", "#a3e635"];
+const assigned = new Map<string, string>();
 export function agentColor(id: string): string {
-  let h = 0;
-  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
-  return PALETTE[h % PALETTE.length] ?? "#f5a524";
+  const have = assigned.get(id);
+  if (have) return have;
+  const color = PALETTE[assigned.size % PALETTE.length] ?? "#7c5cff";
+  assigned.set(id, color);
+  return color;
 }
 
 export function intentColor(status: IntentStatus, agentId: AgentId): string {
