@@ -47,6 +47,8 @@ export interface AgentManagerOptions {
   briefings: () => BriefingQueueLike;
   mode: () => HiveMode;
   model?: string;
+  /** Runs when a run reaches a terminal status, before agent_status is emitted (closes open intents). */
+  onTerminal?: (agentId: AgentId, status: AgentStatus) => void;
 }
 
 export class AgentManager implements AgentManagerLike {
@@ -123,6 +125,11 @@ export class AgentManager implements AgentManagerLike {
         console.error(`[agent ${input.agentId}] crashed:`, err instanceof Error ? err.message : err);
       }
       if (this.running.get(input.agentId) === run) this.running.delete(input.agentId);
+      try {
+        this.opts.onTerminal?.(input.agentId, status);
+      } catch (err) {
+        console.error(`[agent ${input.agentId}] cleanup failed:`, err instanceof Error ? err.message : err);
+      }
       this.setStatus(rec, status, run.step);
     })();
     return { ok: true };

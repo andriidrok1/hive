@@ -24,7 +24,7 @@ import type {
   ReadLogLike,
   TestOrchestratorLike,
 } from "./api/deps.js";
-import { toolHandlers } from "./api/tools.js";
+import { closeOpenIntents, toolHandlers } from "./api/tools.js";
 import { YjsHub } from "./api/yjsWs.js";
 import { AgentManager, type RunAgentFn } from "./agents/AgentManager.js";
 
@@ -150,6 +150,12 @@ export function createHive(opts: CreateHiveOptions): Hive {
     emitter,
     briefings: () => ctx.deps.briefings,
     mode: () => ctx.deps.mode,
+    onTerminal: (agentId: string) => {
+      const closed = closeOpenIntents(ctx, tools, agentId);
+      if (closed.finished.length || closed.cancelled.length) {
+        console.log(`[hive] ${agentId} ended; finished ${closed.finished.join(",") || "-"}, cancelled ${closed.cancelled.join(",") || "-"}`);
+      }
+    },
     ...(opts.model ? { model: opts.model } : {}),
   };
   const agents = new AgentManager(managerOpts);
