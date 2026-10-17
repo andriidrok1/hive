@@ -49,6 +49,13 @@ describe("TOOL_SCHEMAS", () => {
     expect(d).toContain("no imports");
   });
 
+  it("finish_intent description says a no-edit finish releases the target", () => {
+    const t = TOOL_SCHEMAS.find((x) => x.type === "function" && x.function.name === "finish_intent");
+    const d = t && t.type === "function" ? t.function.description ?? "" : "";
+    expect(d).toContain("release the target for other agents");
+    expect(d).toContain("no edits = cancelled");
+  });
+
   it("declare_intent target requires file and symbol", () => {
     const t = TOOL_SCHEMAS.find((x) => x.type === "function" && x.function.name === "declare_intent");
     const target = (t as unknown as { function: { parameters: { properties: { target: { required: string[] } } } } }).function.parameters.properties.target;
@@ -70,6 +77,7 @@ describe("systemPrompt", () => {
     expect(p).toContain("fix the check by re-declaring");
     expect(p).toContain("Do not re-declare the same target repeatedly");
     expect(p).toContain("wait for Hive's approval briefing");
+    expect(p).toContain("call finish_intent on that intent right away so they are unblocked");
     expect(p.split(/\s+/).filter(Boolean).length).toBeLessThan(350);
   });
 

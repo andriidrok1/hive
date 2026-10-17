@@ -88,7 +88,7 @@ export const TOOL_SCHEMAS: OpenAI.Chat.ChatCompletionTool[] = [
   ),
   tool(
     "finish_intent",
-    "Mark an intent as done. Closes its change set and triggers the test run.",
+    "Call when the function is done. Closes the change set and triggers the test run. If you decided NOT to change a declared target, call it anyway to release the target for other agents (no edits = cancelled).",
     { intentId: str("Intent id") },
     TOOL_REQUIRED.finish_intent,
   ),
