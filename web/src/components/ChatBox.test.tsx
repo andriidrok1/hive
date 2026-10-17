@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { ChatBox } from "./ChatBox";
+import { ANDRII_SAMPLE_TASK } from "../demoPresets";
 import { setMockSink } from "../api";
 
 describe("ChatBox", () => {
@@ -23,6 +24,22 @@ describe("ChatBox", () => {
     expect(url).toBe("/api/agents");
     expect(JSON.parse(String(init.body))).toEqual({ agentId: "agent-andrii", humanId: "andrii", task: "Add state tax to checkout" });
     await waitFor(() => expect(box.value).toBe(""));
+  });
+
+  it("Sample task fills the textarea with the preset text and focuses it, without sending", () => {
+    render(<ChatBox agents={[]} target={null} onTarget={() => undefined} humanId="andrii" />);
+    const box = screen.getByLabelText("instruction") as HTMLTextAreaElement;
+    fireEvent.click(screen.getByRole("button", { name: /Sample task/ }));
+    expect(box.value).toBe(ANDRII_SAMPLE_TASK);
+    expect(box.value).toContain('"Discount -$5.64.6999"');
+    expect(document.activeElement).toBe(box);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("hides Sample task while your own agent is running", () => {
+    const agents = [{ agentId: "agent-andrii", humanId: "andrii", status: "thinking" as const, control: "run" as const }];
+    render(<ChatBox agents={agents} target="agent-andrii" onTarget={() => undefined} humanId="andrii" />);
+    expect(screen.queryByRole("button", { name: /Sample task/ })).toBeNull();
   });
 
   it("sends a note (urgent when toggled) to the selected agent when your agent is running", async () => {

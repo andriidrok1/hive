@@ -1,5 +1,6 @@
-import { useState } from "react";
-import { SendHorizontal, Zap } from "lucide-react";
+import { useRef, useState } from "react";
+import { SendHorizontal, Sparkles, Zap } from "lucide-react";
+import { ANDRII_SAMPLE_TASK } from "../demoPresets";
 import type { HiveState } from "@hive/shared";
 import { TERMINAL_AGENT_STATUSES } from "@hive/shared";
 import { sendNote, startAgent } from "../api";
@@ -23,6 +24,7 @@ export function ChatBox({ agents, target, onTarget, humanId }: Props) {
   const [urgent, setUrgent] = useState(false);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  const box = useRef<HTMLTextAreaElement>(null);
   const mine = myAgentId(humanId);
   const mineRunning = agents.some((a) => a.agentId === mine && !TERMINAL_AGENT_STATUSES.includes(a.status));
   const agent = agents.find((a) => a.agentId === target);
@@ -61,6 +63,7 @@ export function ChatBox({ agents, target, onTarget, humanId }: Props) {
     >
       <div className={cn("rounded-lg border bg-background p-2 transition-colors", urgent && mode === "note" ? "border-amber-500/60" : "border-border focus-within:border-violet/70")}>
         <textarea
+          ref={box}
           aria-label="instruction"
           rows={2}
           value={text}
@@ -76,7 +79,24 @@ export function ChatBox({ agents, target, onTarget, humanId }: Props) {
         />
         <div className="mt-1 flex items-center gap-2">
           {mode === "task" ? (
-            <span className="font-mono text-[11px] text-muted-foreground">starts {mine}</span>
+            <>
+              <span className="font-mono text-[11px] text-muted-foreground">starts {mine}</span>
+              {/* Fills the task for the recording take; nothing is sent until the human presses Enter. */}
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-7"
+                onClick={() => {
+                  setText(ANDRII_SAMPLE_TASK);
+                  setMsg(null);
+                  box.current?.focus();
+                }}
+              >
+                <Sparkles />
+                Sample task
+              </Button>
+            </>
           ) : (
             <>
               {agents.length > 1 && (
