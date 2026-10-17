@@ -64,6 +64,7 @@ export async function prepareBaseSnapshot(opts: PrepareOptions): Promise<string>
   t.createMs = Date.now() - c;
   log(`prepare: vm ${vmId} created in ${t.createMs}ms`);
   let sourceVmId = vmId;
+  let snapshotId = "";
   try {
     c = Date.now();
     const paths = Object.keys(opts.files);
@@ -91,11 +92,7 @@ export async function prepareBaseSnapshot(opts: PrepareOptions): Promise<string>
     sourceVmId = snap.sourceVmId ?? vmId;
     log(`prepare: snapshot ${snap.snapshotId} in ${t.snapshotMs}ms`);
 
-    if (opts.writeRecord !== false) {
-      const record: BaseSnapshotRecord = { snapshotId: snap.snapshotId, createdAt: new Date().toISOString(), projectDir, sourceVmId, timings: t };
-      await writeBaseSnapshotRecord(record);
-    }
-    return snap.snapshotId;
+    snapshotId = snap.snapshotId;
   } finally {
     c = Date.now();
     try {
@@ -109,6 +106,11 @@ export async function prepareBaseSnapshot(opts: PrepareOptions): Promise<string>
     log(`prepare: total ${t.totalMs}ms`);
     opts.onTimings?.(t);
   }
+  if (opts.writeRecord !== false) {
+    const record: BaseSnapshotRecord = { snapshotId, createdAt: new Date().toISOString(), projectDir, sourceVmId, timings: t };
+    await writeBaseSnapshotRecord(record);
+  }
+  return snapshotId;
 }
 
 async function exec(vm: { exec: (o: { command: string; timeoutMs: number }) => Promise<{ stdout?: string | null; stderr?: string | null; statusCode?: number | null }> }, command: string, timeoutMs: number, what: string) {
