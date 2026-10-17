@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { HiveMode } from "@hive/shared";
 import { BriefingQueue } from "../../src/coord/BriefingQueue.js";
 import { CallGraph } from "../../src/coord/CallGraph.js";
@@ -11,14 +11,16 @@ const A = "agent-andrii";
 const B = "agent-boris";
 const M = "agent-masha";
 
-function setup(mode: HiveMode = "hive") {
+function setup(mode: HiveMode = "hive", behaviorChanged: boolean | (() => boolean) = true) {
   const sink = eventSink();
   const graph = new CallGraph();
   graph.update({ "src/checkout.ts": CHECKOUT_TS, "src/report.ts": REPORT_TS });
   const reads = new FakeReadLog();
   const briefings = new BriefingQueue({ onEvent: sink.onEvent });
   const llm = new FakeLLM((system) => {
-    if (system === CHECK_PROMPTS.meaning) return { meaning: "calculateTotal was renamed to calcTotal; callers must use the new name" };
+    if (system === CHECK_PROMPTS.meaning) {
+      return { meaning: "calculateTotal was renamed to calcTotal; callers must use the new name", behaviorChanged: typeof behaviorChanged === "function" ? behaviorChanged() : behaviorChanged };
+    }
     return { conflict: false, with: [], reason: "" };
   });
   const intents = new IntentRegistry({ llm, graph, reads, briefings, onEvent: sink.onEvent, mode });
@@ -121,6 +123,74 @@ describe("ChangeWatcher", () => {
     const toM = briefings.takeUndelivered(M);
     expect(toM).toHaveLength(1);
     expect(toM[0]?.summary).toMatch(/^agent-andrii renamed calculateTotal to calcTotal in src\/checkout.ts\. /);
+  });
+
+  it("cosmetic body edits (behaviorChanged=false) produce no briefing; signature/rename/remove always do", async () => {
+    const { watcher, reads, briefings, llm } = setup("hive", false);
+    reads.record(B, "src/checkout.ts", 1, ["calculateTotal", "applyTax"]);
+    // body-only: rename a local variable
+    const cosmetic = CHECKOUT_TS.replace("const subtotal = items", "const sub = items").replace("applyDiscount(subtotal, promo) : subtotal;", "applyDiscount(sub, promo) : sub;");
+    await watcher.onEdit({ path: "src/checkout.ts", rev: 2, actor: A, before: CHECKOUT_TS, after: cosmetic });
+    expect(llm.calls.filter((c) => c.system === CHECK_PROMPTS.meaning)).toHaveLength(1);
+    expect(llm.calls[0]?.shapeHint).toBe("{meaning: string, behaviorChanged: boolean}");
+    expect(briefings.all()).toEqual([]);
+
+    // signature change: briefed even though the model says behaviorChanged=false
+    const sig = CHECKOUT_TS.replace("applyTax(items: Item[], state: string, promo?: Promo)", "applyTax(items: Item[], state: string)");
+    await watcher.onEdit({ path: "src/checkout.ts", rev: 3, actor: A, before: CHECKOUT_TS, after: sig });
+    expect(briefings.takeUndelivered(B).map((b) => b.details.symbol)).toEqual(["applyTax"]);
+
+    // rename: briefed; the cosmetic body change of applyTax in the same edit is not
+    await watcher.onEdit({ path: "src/checkout.ts", rev: 4, actor: A, before: CHECKOUT_TS, after: RENAMED });
+    expect(briefings.takeUndelivered(B).map((b) => b.details.symbol)).toEqual(["calculateTotal"]);
+
+    // removal: briefed
+    await watcher.onEdit({ path: "src/checkout.ts", rev: 5, actor: A, before: CHECKOUT_TS, after: CHECKOUT_TS.replace(/export function applyTax[\s\S]*?\n}\n/, "") });
+    expect(briefings.takeUndelivered(B).map((b) => [b.details.symbol, b.summary.startsWith(`${A} removed applyTax`)])).toEqual([["applyTax", true]]);
+
+    // a body change the model flags as behavioral is briefed
+    const { watcher: w2, reads: r2, briefings: q2 } = setup("hive", true);
+    r2.record(B, "src/checkout.ts", 1, ["calculateTotal"]);
+    await w2.onEdit({ path: "src/checkout.ts", rev: 2, actor: A, before: CHECKOUT_TS, after: CHECKOUT_TS.replace("Math.max(0, subtotal - promo.value)", "subtotal - promo.value") });
+    // B read checkout.ts, whose calculateTotal calls applyDiscount: briefed as a reader of a caller file
+    expect(q2.takeUndelivered(B).map((b) => [b.details.symbol, b.details.yourUsages])).toEqual([["applyDiscount", [{ file: "src/checkout.ts", line: 6 }]]]);
+    await w2.onEdit({ path: "src/checkout.ts", rev: 3, actor: A, before: CHECKOUT_TS, after: CHECKOUT_TS.replace(": subtotal;", ": subtotal + 1;") });
+    expect(q2.takeUndelivered(B).map((b) => b.details.symbol)).toEqual(["calculateTotal"]);
+  });
+
+  it("coalesces repeated edits of the same symbol by the same actor within 3 s into one pending briefing", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-10-17T12:00:00Z"));
+      const { watcher, reads, briefings, sink } = setup();
+      reads.record(B, "src/checkout.ts", 1, ["calculateTotal"]);
+      const v1 = CHECKOUT_TS.replace(": subtotal;", ": subtotal + 1;");
+      const v2 = v1.replace("subtotal + 1", "subtotal + 2");
+      const v3 = v2.replace("subtotal + 2", "subtotal + 3");
+
+      await watcher.onEdit({ path: "src/checkout.ts", rev: 2, actor: A, before: CHECKOUT_TS, after: v1 });
+      vi.advanceTimersByTime(1000);
+      await watcher.onEdit({ path: "src/checkout.ts", rev: 3, actor: A, before: v1, after: v2 });
+      expect(briefings.all()).toHaveLength(1);
+      expect(briefings.all()[0]?.details.diff).toContain("subtotal + 2");
+      expect(sink.ofType("briefing_sent")).toHaveLength(1);
+
+      // a different actor editing the same symbol is a separate briefing
+      await watcher.onEdit({ path: "src/checkout.ts", rev: 4, actor: M, before: v2, after: v3 });
+      expect(briefings.all()).toHaveLength(2);
+
+      // after the window a new briefing is added
+      vi.advanceTimersByTime(3001);
+      await watcher.onEdit({ path: "src/checkout.ts", rev: 5, actor: A, before: v3, after: v3.replace("subtotal + 3", "subtotal + 4") });
+      expect(briefings.all()).toHaveLength(3);
+
+      // once delivered, the next edit creates a fresh briefing even inside the window
+      briefings.takeUndelivered(B);
+      await watcher.onEdit({ path: "src/checkout.ts", rev: 6, actor: A, before: v3, after: v3.replace("subtotal + 3", "subtotal + 5") });
+      expect(briefings.all()).toHaveLength(4);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("no-op in naive and isolated modes", async () => {

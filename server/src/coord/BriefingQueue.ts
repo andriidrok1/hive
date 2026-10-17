@@ -35,6 +35,36 @@ export class BriefingQueue {
     return briefing;
   }
 
+  /**
+   * Like push, but if an undelivered, unacked briefing with the same toAgent, kind, sender,
+   * file and symbol was pushed within `windowMs`, replace its content in place (same id)
+   * instead of adding another. No event on replace: it is the same briefing, updated.
+   */
+  upsert(b: Omit<Briefing, "id" | "createdAt">, opts?: { windowMs?: number }): Briefing {
+    const windowMs = opts?.windowMs ?? 3000;
+    const now = Date.now();
+    const existing = [...this.items].reverse().find(
+      (x) =>
+        x.toAgent === b.toAgent &&
+        x.kind === b.kind &&
+        x.fromAgent === b.fromAgent &&
+        x.fromHuman === b.fromHuman &&
+        x.details.file === b.details.file &&
+        x.details.symbol === b.details.symbol &&
+        !x.ack &&
+        !this.delivered.has(x.id) &&
+        now - x.createdAt <= windowMs,
+    );
+    if (!existing) return this.push(b);
+    const details = { ...b.details };
+    if (details.diff !== undefined) details.diff = clip(details.diff, DIFF_MAX);
+    existing.summary = clip(b.summary, SUMMARY_MAX);
+    existing.details = details;
+    existing.requiresAck = b.requiresAck || existing.requiresAck;
+    existing.createdAt = now;
+    return existing;
+  }
+
   /** Undelivered briefings for this agent, oldest first; marks them delivered. */
   takeUndelivered(agentId: AgentId): Briefing[] {
     const out: Briefing[] = [];
