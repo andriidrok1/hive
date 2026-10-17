@@ -13,7 +13,10 @@ TypeScript checkout module, integer cents everywhere, vitest tests. Keep it smal
 - `src/format.ts`: `formatPrice(cents)` → `"$12.34"`.
 - `src/order.ts`: `orderSummary(items, promo, state)` uses `calculateTotal`, `applyTax`, `formatPrice`.
 - `test/*.test.ts`: 12–20 tests covering each function and `orderSummary` end to end.
-- `package.json`: devDependencies `vitest`, `typescript`; `npm test` green.
+- `package.json` is set (do not edit; `vitest` comes from the root). `npm test -w @hive/demo-app` green.
+- Keep `demo-app` free of a `vitest.config.*` and of `node_modules`: the runner copies its files elsewhere.
+
+`bench/package.json` already has the `bench` script (`tsx src/run.ts`). Do not edit package files.
 
 ## Part 2: scenarios (`bench/scenarios/*.json`), target 45 minutes
 
@@ -28,7 +31,7 @@ Each scenario = two agents with tasks that are individually reasonable, whose ed
     { "agentId": "agent-andrii", "humanId": "andrii", "task": "Make calculateTotal return the final price the customer pays, including state tax. Add a state parameter." },
     { "agentId": "agent-masha", "humanId": "masha", "task": "Add an orderSummary line showing tax separately: tax = applyTax(calculateTotal(...)) - calculateTotal(...)." }
   ],
-  "injection": { "agentId": "agent-andrii", "delayMs": 20000 },
+  "startDelaysMs": { "agent-andrii": 0, "agent-masha": 20000 },
   "acceptance": "npm test",
   "extraTests": "test/s01.accept.test.ts",
   "notes": "Each task alone keeps tests green; together tax is applied twice."
@@ -54,11 +57,11 @@ For each scenario verify by hand (write the reference solutions in `bench/refere
 CLI: `npm run bench -w @hive/bench -- --scenarios s01,s02 --variants hive,naive,isolated --repeats 2 --parallel 3 --server http://localhost:4317`.
 
 For each (scenario, variant, repeat), sequentially per server (one server = one run; to parallelize, start several servers on ports 4317+k with `PORT` env, document it):
-1. `POST /api/reset { mode }` with the scenario's base files.
-2. `POST /api/agents` for both agents; start the second after `injection.delayMs` if `injection.agentId` is the first, so their work overlaps in time.
-3. Wait until both agents are `done|stopped|budget` (poll `/api/state`, timeout 15 min).
+1. `POST /api/reset { mode }` (the base project is always `demo-app`).
+2. `POST /api/agents` for each agent after its `startDelaysMs`, so their work overlaps in time (the second agent starts while the first is mid-task).
+3. Wait until both agents are `done|stopped|budget` (poll `/api/state` every 3s, timeout 15 min).
 4. Isolated variant: `POST /api/merge`.
-5. Add `extraTests`, run the suite via `run_command`-equivalent endpoint (or `POST /api/test` if brief 03 adds it; otherwise run locally on `GET /api/state` files with LocalRunner logic).
+5. `POST /api/test { extraFiles: { [extraTests path]: content } }`.
 6. Record a row: scenario, variant, repeat, success, tests passed/failed, toolCalls, tokens in/out, wall ms, briefings sent, acks adapted, conflicts caught before code, culprit searches, culprit correct (compare to scenario's known culprit pair).
 Write `results/results.csv` and `results/summary.md` (success rate per variant, mean tokens, mean time, false alarms on controls).
 

@@ -17,13 +17,25 @@ Each human has their own AI agent; all agents work in one live shared project, l
 | `shared/` | `@hive/shared` | human only |
 | `server/src/core/` | `@hive/server` | 01 core state |
 | `server/src/coord/` | `@hive/server` | 02 coordination |
-| `server/src/api/`, `server/src/index.ts`, `server/src/agents/` | `@hive/server` | 03 API server |
+| `server/src/api/`, `server/src/agents/`, `server/src/index.ts`, `server/src/hive.ts`, `server/src/emit.ts` | `@hive/server` | 03 API server |
 | `server/src/runner/` | `@hive/server` | 04 runner and culprit |
 | `agent/` | `@hive/agent` | 05 agent loop |
 | `web/` | `@hive/web` | 06 web UI |
 | `demo-app/`, `bench/` | `@hive/demo-app`, `@hive/bench` | 07 demo app and bench |
 
-Stack: Node 24, TypeScript strict, ESM (`"type": "module"`), vitest for all tests. npm workspaces. Each package adds its own dependencies to its own `package.json` only.
+Stack: Node 24, TypeScript strict, ESM (`"type": "module"`), vitest for all tests. npm workspaces.
+
+**Dependencies are pre-installed.** Every package's `package.json` already lists the dependencies the briefs need, and `package-lock.json` is committed. Do not edit any `package.json` (four briefs share `server/package.json`; parallel edits would conflict on merge). Run `npm ci` at the root of your worktree. If you truly need a new dependency, list it in your report; the human adds it.
+
+TypeScript is pinned to 5.9: TypeScript 7 (the Go port) has no JS compiler API, and brief 02 needs `ts.createSourceFile`. Do not upgrade it.
+
+TypeScript rules (the base config uses `module: NodeNext`; `web/` uses bundler resolution instead):
+- relative imports need the `.js` extension: `import { ProjectStore } from "./ProjectStore.js"`;
+- re-export types with `export type { ... }` (`isolatedModules` is on);
+- `noUncheckedIndexedAccess` is on: handle `undefined` from index access;
+- import shared types from `@hive/shared`.
+
+Tests live next to the code owner's folder: `server/test/<module>/`, `agent/test/`, `web/src/**/*.test.tsx`, `demo-app/test/`, `bench/test/`.
 
 Server internals talk through the TypeScript interfaces each module exports (listed below). Modules must be usable without the HTTP layer so they can be unit-tested in isolation.
 
@@ -37,7 +49,8 @@ Server internals talk through the TypeScript interfaces each module exports (lis
 | `HIVE_MODE` | `hive` | `hive`, `naive` (no intents/briefings), `isolated` (per-agent copies, merge at end) |
 | `HIVE_MODEL_AGENT` | `gpt-5.4-mini` | agent loop |
 | `HIVE_MODEL_CHECK` | `gpt-5.4-nano` | coord checks |
-| `HIVE_PROJECT_DIR` | `../demo-app` | initial files loaded into the project |
+| `HIVE_PROJECT_DIR` | `../demo-app` | initial files loaded into the project (resolved from `server/`); loads `src/**`, `test/**`, `package.json`, `tsconfig.json`, never `node_modules` |
+| `PORT` | `4317` | server port; the bench starts extra servers on 4318+ |
 
 Keys live in `.env` at the repo root (gitignored). Never print keys, never commit them. Tests must pass without any key (use fakes).
 
@@ -73,7 +86,8 @@ class ReadLog {
 class History {
   constructor(store: ProjectStore)
   beginIntent(intent: Intent): void
-  finishIntent(intentId: IntentId): ChangeSet          // builds the patch of only this intent's edits
+  recordEdit(change: { path: string; intentId?: IntentId; before: string; after: string; rev: Rev }): void // wired to store.onChange
+  finishIntent(intentId: IntentId): ChangeSet          // edits[] = one small patch per edit, in order; patch = display diff
   changeSets(): ChangeSet[]
   saveSnapshot(green: boolean): Snapshot
   lastGreen(): Snapshot | undefined
@@ -151,18 +165,26 @@ Per-tool rules:
 | Method | Path | Body | Effect |
 |---|---|---|---|
 | GET | `/api/state` | | `HiveState` |
-| GET | `/api/files/:path*` | | `{ content, rev }` |
+| GET | `/api/files/*` | | `{ content, rev, symbols: SymbolInfo[] }` (path after `/api/files/`, URL-encoded) |
 | POST | `/api/agents` | `{ agentId, humanId, task }` | start an agent loop with this task |
 | POST | `/api/agents/:agentId/control` | `{ humanId, control: "run" \| "pause" \| "stop" }` | pause/resume/stop |
 | POST | `/api/agents/:agentId/note` | `{ humanId, text, urgent?: boolean }` | `human_note` briefing; urgent aborts the current model call |
 | POST | `/api/intents/:id/output` | `{ humanId, output }` | contract change, briefings to dependents |
 | POST | `/api/intents/resolve` | `{ humanId, keep, cancel }` | resolve a conflict |
-| POST | `/api/reset` | `{ mode?: HiveMode }` | reload initial files, clear state (bench uses this) |
+| POST | `/api/reset` | `{ mode?: HiveMode }` | stop all agents, reload initial files, clear all state (bench uses this) |
+| POST | `/api/test` | `TestRequest` | run the full suite on current files (+ `extraFiles`) via the runner → `TestResult` |
+| POST | `/api/merge` | | `isolated` mode only: 3-way merge of agent copies into main → `MergeResult` |
 
 ### WebSockets
 
 - `ws://localhost:4317/ws/feed`: server sends `FeedEvent` JSON, one per message. On connect, the client then calls `GET /api/state`.
-- `ws://localhost:4317/yjs/project`: y-websocket sync of `ProjectStore.ydoc`. One `Y.Map<Y.Text>` named `files`, keyed by path. Awareness carries `{ user: { name, color, kind: "human" | "agent" } }`.
+- `ws://localhost:4317/yjs/project`: y-websocket sync of `ProjectStore.ydoc`. One `Y.Map<Y.Text>` named `files`, keyed by path. Awareness carries `{ user: { name, color, kind: "human" | "agent" } }`. Agents do not use Yjs directly: their edits go through tools and the server writes them into the same doc, so the web sees them live.
+
+## Modes
+
+- `hive`: everything on.
+- `naive`: one shared live project, no intents required, no briefings, no culprit search (tests still run on `/api/test`). Baseline "shared workspace without coordination".
+- `isolated`: each agent edits its own copy, `/api/merge` merges at the end. Baseline "worktrees + merge" (like CAID).
 
 ## Agent loop rules (brief 05)
 

@@ -1,6 +1,6 @@
 # Brief 05: agent loop on OpenAI
 
-You own `agent/`. Read `CONTRACTS.md` and `shared/src/contracts.ts`. Dependencies in `agent/package.json`: `openai` (official SDK), `vitest`, `typescript`. No other package's files.
+You own `agent/`. Read `CONTRACTS.md` and `shared/src/contracts.ts`. Do not edit any `package.json`: dependencies (`openai` official SDK, `vitest`) are pre-installed, run `npm ci` at the worktree root. No other package's files. Check the installed `openai` SDK version's types for the exact names of `reasoning_effort` and `parallel_tool_calls` rather than guessing.
 
 ## Goal
 

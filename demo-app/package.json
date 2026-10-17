@@ -1,2 +1,14 @@
-{ "name": "@hive/demo-app", "version": "0.0.1", "private": true, "type": "module",
-  "scripts": { "test": "vitest run", "typecheck": "tsc -p . --noEmit" } }
+{
+  "name": "@hive/demo-app",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc -p . --noEmit"
+  },
+  "devDependencies": {
+    "vitest": "^5.0.5",
+    "typescript": "~5.9.3"
+  }
+}

@@ -195,7 +195,11 @@ export interface ChangeSet {
   humanId: HumanId;
   what: string;
   files: string[];
-  patch: string; // unified diff from the state at baseRev to the state at endRev, only this intent's edits
+  // Each edit of this intent as its own small unified patch, in the order applied.
+  // Patches are made against different intermediate states, so they must be applied
+  // one by one in order (jsdiff applyPatch tolerates line offsets), never merged into one.
+  edits: { path: string; patch: string }[];
+  patch: string; // display only: combined diff for the UI, never applied
   baseRev: Rev;
   endRev: Rev;
   added: number;
@@ -301,4 +305,18 @@ export const ENV = {
   HIVE_MODEL_AGENT: "HIVE_MODEL_AGENT", // default "gpt-5.4-mini"
   HIVE_MODEL_CHECK: "HIVE_MODEL_CHECK", // default "gpt-5.4-nano"
   HIVE_PROJECT_DIR: "HIVE_PROJECT_DIR", // initial files, default "../demo-app"
+  PORT: "PORT", // server port, default 4317 (bench starts extra servers on 4318+)
 } as const;
+
+// ---------- Extra endpoints used by the bench ----------
+
+export interface TestRequest {
+  extraFiles?: Record<string, string>; // e.g. scenario acceptance tests, added only for this run
+  filter?: string;
+}
+
+export interface MergeResult {
+  ok: boolean; // false if any textual conflict markers were written
+  conflicts: { path: string }[];
+  rev: Rev;
+}

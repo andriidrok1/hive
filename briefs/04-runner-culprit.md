@@ -1,6 +1,6 @@
 # Brief 04: runner, test orchestration, culprit finder (Freestyle)
 
-You own `server/src/runner/` and `server/test/runner/`. Read `CONTRACTS.md`, `shared/src/contracts.ts`, and the Freestyle docs skill (`~/.claude/skills/freestyle-docs/SKILL.md`; fetch `https://www.freestyle.sh/docs/llms.txt` and the pages on VMs, snapshots, exec and files before writing Freestyle code: answer from the docs, the API changes). Dependencies in `server/package.json`: `freestyle` (npm SDK, latest), `diff`, `vitest`.
+You own `server/src/runner/` and `server/test/runner/`. Read `CONTRACTS.md`, `shared/src/contracts.ts`, and the Freestyle docs skill (`~/.claude/skills/freestyle-docs/SKILL.md`; fetch `https://www.freestyle.sh/docs/llms.txt` and the pages on VMs, snapshots, exec and files before writing Freestyle code: answer from the docs, the API changes). Do not edit any `package.json`: dependencies (`freestyle` SDK, `diff`, `vitest`) are pre-installed and `server/package.json` already has the `runner:prepare` script (`tsx src/runner/prepare.ts`). Run `npm ci` at the worktree root.
 
 Credits: $500 are on the team account; `FREESTYLE_API_KEY` is in the repo `.env`. Delete every VM you create in tests and scripts (try/finally). Never print the key.
 
@@ -10,9 +10,9 @@ Run tests and commands on any set of files, locally or in Freestyle VMs, and fin
 
 ## Files
 
-- `LocalRunner.ts`: copy `templateDir` (the demo app with `node_modules` installed) to a temp dir once per call (`fs.cp` with `node_modules` symlinked, not copied), write files, run `npx vitest run --reporter=json --outputFile=<tmp>/r.json` (and `filter` as a test name pattern), parse into `TestResult`. `runCommand` runs `sh -c cmd` with timeout, truncates output to 8000 chars.
-- `FreestyleRunner.ts`: create VM from `baseSnapshotId` (idle timeout off for agent sandboxes, short for test VMs; public internet off unless needed), write files (prefer the SDK file API; fallback: one `exec` with a base64 tar), run the same vitest command, parse, delete VM. Semaphore `maxParallel` (default 8). Record `vmId` and timings. Retries once on VM creation failure.
-- `prepare.ts` + script `runner:prepare` in `server/package.json`: create a VM, copy `demo-app` (without node_modules), `npm ci`, verify `npx vitest run` passes, snapshot, write `{ snapshotId, createdAt }` to `.hive/base-snapshot.json`, delete the VM. Print timings.
+- `LocalRunner.ts`: npm workspaces hoist dependencies to the **repo root** `node_modules`, so `demo-app` has no `node_modules` of its own. Therefore create each run's temp dir **inside the repo**, at `<repoRoot>/.hive/runs/<id>/` (gitignored), so Node and `vitest` resolve from the root `node_modules` by walking up. Write the given files there (they include `package.json`, `src/**`, `test/**`), run `<repoRoot>/node_modules/.bin/vitest run --root <dir> --reporter=json --outputFile=<dir>/r.json` (plus `-t <filter>`), parse into `TestResult`, delete the dir. `runCommand` runs `sh -c cmd` in such a dir with a timeout, truncates output to 8000 chars. Find `repoRoot` by walking up from `import.meta.url` to the folder with the root `package.json` that has `workspaces`.
+- `FreestyleRunner.ts`: create VM from `baseSnapshotId` (idle timeout off for agent sandboxes, short for test VMs; public internet off unless needed), write files into the prepared project dir in the VM (prefer the SDK file API; fallback: one `exec` with a base64 tar), run `npx vitest run --reporter=json --outputFile=r.json`, read and parse it, delete VM. Semaphore `maxParallel` (default 8). Record `vmId` and timings. Retries once on VM creation failure.
+- `prepare.ts` (`npm run runner:prepare -w @hive/server`): create a VM, copy `demo-app` files (no `node_modules`), run `npm install` there (not `npm ci`: demo-app has no lockfile of its own inside the workspace), verify `npx vitest run` passes, snapshot, write `{ snapshotId, createdAt, projectDir }` to `<repoRoot>/.hive/base-snapshot.json`, delete the VM. Print timings.
 - `CulpritFinder.ts`: see algorithm below.
 - `TestOrchestrator.ts`: deps `{ store, history, intents, briefings, runner, culprit, emit, mode }`. On `onIntentFinished(id)`: wait until 1s without store changes (max 5s), save a snapshot, run the intent's `check` if present (write a temp test file `__hive_check__.test.ts` with an `import` of the target and the check lines; failure → intent `failed`, `verification_failed` briefings to dependents), then the full suite; green → `saveSnapshot(true)`, intent `verified`; red → culprit search over `changeSetsSince(lastGreen.rev)`, emit variant results live, then `culprit` briefings: single → to the culprit's owner; pair → to both owners with both intents' outputs; unknown → to all suspects' owners. Emits `test_run_*` and `culprit_*` events.
 - `index.ts` re-exports and `makeRunner(env)` picks local or freestyle.
@@ -20,7 +20,7 @@ Run tests and commands on any set of files, locally or in Freestyle VMs, and fin
 ## Culprit algorithm
 
 Input: green snapshot G, change sets S1..Sn (n ≤ 6; if more, take the last 6).
-1. Variants: `G+Si` for each i, and `All−Si` for each i (`All` = apply every Si in order; `All−Si` = apply all except Si). Apply with `diff.applyPatch`; if a patch fails to apply, record `applyError` and mark Si as dependent on earlier ones.
+1. Variants: `G+Si` for each i, and `All−Si` for each i (`All` = apply every Si in order; `All−Si` = apply all except Si). Apply a change set by applying its `edits` one by one in order with `applyEdits` from `server/src/core` (brief 01; until merged, a local copy in your test folder); if it fails, record `applyError` and mark Si as dependent on earlier ones.
 2. Run all variants in parallel through the runner (respect `maxParallel`), call `onVariant` as each finishes.
 3. Decide:
    - exactly one i with `All−Si` green and `G+Si` red → `single [Si]`;

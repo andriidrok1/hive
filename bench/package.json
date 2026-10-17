@@ -1,3 +1,22 @@
-{ "name": "@hive/bench", "version": "0.0.1", "private": true, "type": "module",
-  "scripts": { "test": "vitest run", "typecheck": "tsc -p . --noEmit" },
-  "dependencies": { "@hive/shared": "*" } }
+{
+  "name": "@hive/bench",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc -p . --noEmit",
+    "bench": "tsx src/run.ts"
+  },
+  "dependencies": {
+    "@hive/shared": "*",
+    "@hive/agent": "*",
+    "diff": "^9.0.0"
+  },
+  "devDependencies": {
+    "vitest": "^5.0.5",
+    "tsx": "^4.23.15",
+    "typescript": "~5.9.3",
+    "@types/node": "^26.6.5"
+  }
+}

@@ -1,6 +1,6 @@
 # Brief 01: core state (live project, revisions, reads, history)
 
-You own `server/src/core/` and `server/test/core/`. Read `CONTRACTS.md` and `shared/src/contracts.ts` first. Do not edit anything else. Add dependencies to `server/package.json` only (`yjs`, `diff`, `vitest`, `typescript`, `@types/diff`); if another brief already added one, keep their version.
+You own `server/src/core/` and `server/test/core/`. Read `CONTRACTS.md` and `shared/src/contracts.ts` first. Do not edit anything else, including any `package.json`: dependencies (`yjs`, `diff`, `vitest`) are pre-installed, run `npm ci` at the worktree root.
 
 ## Goal
 
@@ -33,8 +33,8 @@ The in-memory truth of the shared project: files in a Yjs document, a project-wi
 
 ### History
 
-- `beginIntent(intent)` starts collecting edits whose `intentId` matches.
-- Each change set's `patch` must contain only that intent's edits. Approach: keep, per intent, the file text right before its first edit and right after its last edit, **minus** foreign edits made in between. Simplest correct approach for the hackathon: record each edit of the intent as its own small hunk (`diff.structuredPatch` of before/after of that single edit) and concatenate hunks per file in order; `finishIntent` joins them into one unified patch per file (`diff.formatPatch`). Document the approach in a comment.
+- `beginIntent(intent)` starts collecting edits whose `intentId` matches. `recordEdit(change)` is wired to `store.onChange` by brief 03; in tests call it yourself.
+- Each change set must contain only that intent's edits. For every edit with that `intentId`, store `diff.createPatch(path, before, after, "", "", { context: 3 })` as one entry in `edits`, in the order applied. These patches are against different intermediate states, so consumers apply them one by one in order with `diff.applyPatch` (it tolerates line offsets). Never merge them into one patch. `patch` is a display-only combined diff: `createPatch` of the file at the intent's first edit `before` vs its last edit `after` (may include foreign edits made in between; UI only).
 - `saveSnapshot(green)` stores all files at current rev. `lastGreen()` returns the latest green one. `changeSetsSince(rev)` returns finished change sets with `endRev > rev`, ordered by `endRev`.
 
 ## Tests (all required)
@@ -48,7 +48,8 @@ The in-memory truth of the shared project: files in a Yjs document, a project-wi
 7. A human inserting text at the top of the file between two agent edits does not break the second agent edit (edit by `oldText` still found).
 8. `createFile` happy path and duplicate path → `BAD_ARGS`.
 9. `ReadLog.readersOf("src/checkout.ts", "calculateTotal")` returns only agents whose read included that symbol, with their latest rev.
-10. History: intent A edits `calculateTotal`, intent B edits `applyTax` in between A's two edits; `finishIntent(A).patch` applied with `diff.applyPatch` to the green snapshot reproduces A's change only (B's absent); same for B.
+10. History: intent A edits `calculateTotal`, intent B edits `applyTax` in between A's two edits; applying `finishIntent(A).edits` one by one with `diff.applyPatch` to the green snapshot reproduces A's change only (B's absent); same for B; applying A's then B's edits reproduces the current state.
+13. Export a helper `applyEdits(files: Record<string,string>, edits: ChangeSet["edits"]): { files } | { error: { path: string; index: number } }` (brief 04's culprit finder uses it), with a test where an edit fails to apply.
 11. `changeSetsSince(greenRev)` returns change sets in `endRev` order.
 12. `saveSnapshot(true)` then more edits → `lastGreen().files` unchanged by later edits.
 

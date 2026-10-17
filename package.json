@@ -2,12 +2,24 @@
   "name": "hive",
   "private": true,
   "type": "module",
-  "workspaces": ["shared", "server", "agent", "web", "demo-app", "bench"],
+  "workspaces": [
+    "shared",
+    "server",
+    "agent",
+    "web",
+    "demo-app",
+    "bench"
+  ],
   "scripts": {
     "test": "npm test --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "dev:server": "npm run dev -w @hive/server",
     "dev:web": "npm run dev -w @hive/web"
   },
-  "engines": { "node": ">=24" }
+  "engines": {
+    "node": ">=24"
+  },
+  "devDependencies": {
+    "typescript": "~5.9.3"
+  }
 }

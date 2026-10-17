@@ -1,6 +1,6 @@
 # Brief 02: coordination (symbols, call graph, intents, briefings, mailbox, LLM)
 
-You own `server/src/coord/` and `server/test/coord/`. Read `CONTRACTS.md` and `shared/src/contracts.ts` first. You may import types from `server/src/core/` (brief 01) but must not edit it; until it exists, code against the interfaces in `CONTRACTS.md` and use tiny local fakes in tests. Dependencies go in `server/package.json` only (`typescript` as a runtime dependency for the compiler API, `diff`, `vitest`).
+You own `server/src/coord/` and `server/test/coord/`. Read `CONTRACTS.md` and `shared/src/contracts.ts` first. You may import types from `server/src/core/` (brief 01) but must not edit it; until it exists, code against the interfaces in `CONTRACTS.md` and use tiny local fakes in tests. Do not edit any `package.json`: dependencies (`typescript` for the compiler API, `diff`, `vitest`) are pre-installed, run `npm ci` at the worktree root. The LLM adapter uses plain `fetch` (no SDK) so it has no extra dependency.
 
 ## Goal
 

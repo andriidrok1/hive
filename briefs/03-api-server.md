@@ -1,6 +1,6 @@
 # Brief 03: API server (wiring, HTTP tools, WebSockets, agent runs)
 
-You own `server/src/api/`, `server/src/agents/`, `server/src/index.ts`, `server/src/emit.ts`, `server/test/api/`. Read `CONTRACTS.md` and `shared/src/contracts.ts`. Other server folders belong to briefs 01, 02, 04: import their classes, never edit them. Until they land, write thin local stubs **inside your test folder only** that follow the interfaces in CONTRACTS.md, and switch to real imports as soon as they exist. Dependencies in `server/package.json`: `fastify`, `@fastify/websocket`, `@fastify/cors`, `ws`, `y-websocket` (or `@y/websocket-server`, whichever exports `setupWSConnection` for the installed yjs), `dotenv`, `tsx` (dev), `vitest`.
+You own `server/src/api/`, `server/src/agents/`, `server/src/index.ts`, `server/src/emit.ts`, `server/test/api/`. Read `CONTRACTS.md` and `shared/src/contracts.ts`. Other server folders belong to briefs 01, 02, 04: import their classes, never edit them. Until they land, write thin local stubs **inside your test folder only** that follow the interfaces in CONTRACTS.md, and switch to real imports as soon as they exist. Do not edit any `package.json`: dependencies are pre-installed (`fastify`, `@fastify/websocket`, `@fastify/cors`, `ws`, `y-websocket` client, `@y/websocket-server` for `setupWSConnection`, `y-protocols`, `dotenv`, `tsx`, `vitest`), and `server/package.json` already has `dev` (`tsx watch src/index.ts`) and `start` scripts. Run `npm ci` at the worktree root. If `@y/websocket-server`'s API differs from what you expect, read its source in `node_modules` rather than guessing.
 
 ## Goal
 
@@ -19,7 +19,9 @@ One process that holds all state, exposes the agent tool API and the human/UI AP
 
 ## Isolated mode
 
-`HIVE_MODE=isolated`: each agent gets its own ProjectStore copy (lazy, on first tool call). `POST /api/merge` does a 3-way merge of every agent copy into the main store (line-based, `diff3` via the `node-diff3` package or a simple merge using `diff.applyPatch` of each agent's patch against base; on a textual conflict keep both versions with conflict markers) and runs tests. The bench uses this as the "isolated + merge" baseline.
+`HIVE_MODE=isolated`: each agent gets its own ProjectStore copy (lazy, on first tool call), all tools act on that copy. `POST /api/merge` merges every agent copy into the main store: for each file, apply each agent's diff against the base (`diff.createPatch(base, agentVersion)` then `diff.applyPatch` on the running result, agents in start order); if a patch does not apply, write the file with git-style conflict markers and report it in `MergeResult.conflicts`. `POST /api/test` then runs the suite. The bench uses this as the "isolated + merge" baseline.
+
+`POST /api/test` (all modes): snapshot current files, add `extraFiles`, run `runner.runTests`, emit `test_run_started/finished`, return `TestResult`.
 
 ## Tests (all required, use `app.inject`, FakeLLM, a fake Runner)
 
@@ -38,6 +40,9 @@ One process that holds all state, exposes the agent tool API and the human/UI AP
 13. `POST /api/reset` restores initial files and clears intents.
 14. Isolated mode: two agents edit different copies; `/api/merge` merges non-overlapping edits.
 15. AgentManager with a fake `runAgent` that calls two tools and finishes → `agent_status` events idle→tool→done.
+16. `POST /api/test` with `extraFiles` passes them to the runner and returns its result.
+17. `GET /api/files/src%2Fcheckout.ts` returns content, rev and symbols.
+18. `store.onChange` wiring: an edit reaches History (`recordEdit`), CallGraph and ChangeWatcher (check with spies).
 
 ## Done
 
