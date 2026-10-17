@@ -53,6 +53,7 @@ describe("validateScenario", () => {
     ["conflict without culprits", { ...good, expectedCulprits: [] }],
     ["control with culprits", { ...good, conflict: false }],
     ["extraTests outside test/", { ...good, extraTests: "src/x.test.ts" }],
+    ["owns outside src/test", { ...good, agents: [{ ...good.agents[0], owns: ["package.json"] }, good.agents[1]] }],
     ["not an object", "nope"],
   ];
   for (const [name, raw] of broken) {

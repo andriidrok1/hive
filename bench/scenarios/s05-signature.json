@@ -6,16 +6,31 @@
     {
       "agentId": "agent-andrii",
       "humanId": "andrii",
-      "task": "formatPrice in src/format.ts must take a required second parameter currency: \"USD\" | \"EUR\" and prefix the amount with $ or €; throw an Error for any other value. Update every call site (src/order.ts passes \"USD\") and the tests."
+      "task": "formatPrice in src/format.ts must take a required second parameter currency: \"USD\" | \"EUR\" and prefix the amount with $ or €; throw an Error for any other value. Update every call site (src/order.ts passes \"USD\") and the tests. You own src/format.ts and test/format.test.ts; in src/order.ts change only the existing formatPrice calls.",
+      "owns": [
+        "src/format.ts",
+        "test/format.test.ts",
+        "src/order.ts"
+      ]
     },
     {
       "agentId": "agent-masha",
       "humanId": "masha",
-      "task": "Add an exported function receiptTotalLine(items: Item[], promo?: Promo): string at the end of src/order.ts that returns `TOTAL ${formatPrice(calculateTotal(items, promo))}` (for a $15 cart: \"TOTAL $15.00\"). Add tests in test/receipt-total.test.ts."
+      "task": "Add an exported function receiptTotalLine(items: Item[], promo?: Promo): string at the end of src/order.ts that returns `TOTAL ${formatPrice(calculateTotal(items, promo))}` (for a $15 cart: \"TOTAL $15.00\"). Add tests in test/receipt-total.test.ts. You own test/receipt-total.test.ts; in src/order.ts add only the new function.",
+      "owns": [
+        "src/order.ts",
+        "test/receipt-total.test.ts"
+      ]
     }
   ],
-  "startDelaysMs": { "agent-andrii": 0, "agent-masha": 20000 },
-  "expectedCulprits": ["agent-andrii", "agent-masha"],
+  "startDelaysMs": {
+    "agent-andrii": 0,
+    "agent-masha": 3000
+  },
+  "expectedCulprits": [
+    "agent-andrii",
+    "agent-masha"
+  ],
   "acceptance": "npm test",
   "extraTests": "test/s05.accept.test.ts",
   "notes": "Both touch src/order.ts but in hunks far apart (A inside orderSummary, B appends a function). B's call passes no currency; after A that throws."

@@ -36,14 +36,27 @@ for (const scenario of scenarios) {
       expect(check.base.result?.ok, describeCheck(check.base)).toBe(true);
     });
 
-    it("a.patch alone applies and keeps its suite green", () => {
+    // "Alone green" means: the suite as modified by that patch is green, except that tests inside files the
+    // OTHER agent owns may be red (that agent is told about the change through a briefing and fixes them).
+    const failuresOutside = (v: typeof check.a, otherOwns: string[]) =>
+      (v.result?.failures ?? []).filter((f) => !otherOwns.some((file) => f.name.startsWith(file)));
+
+    it("a.patch alone applies and leaves red tests only in files B owns", () => {
       expect(check.a.applied, describeCheck(check.a)).toBe(true);
-      expect(check.a.result?.ok, describeCheck(check.a)).toBe(true);
+      expect(failuresOutside(check.a, scenario.agents[1]?.owns ?? []), describeCheck(check.a)).toEqual([]);
     });
 
-    it("b.patch alone applies and keeps its suite green", () => {
+    it("b.patch alone applies and leaves red tests only in files A owns", () => {
       expect(check.b.applied, describeCheck(check.b)).toBe(true);
-      expect(check.b.result?.ok, describeCheck(check.b)).toBe(true);
+      expect(failuresOutside(check.b, scenario.agents[0]?.owns ?? []), describeCheck(check.b)).toEqual([]);
+    });
+
+    it("each patch touches only files its agent owns (when ownership is declared)", () => {
+      for (const [patch, agent] of [["a.patch", scenario.agents[0]], ["b.patch", scenario.agents[1]]] as const) {
+        if (!agent?.owns) continue;
+        const outside = patchFiles(join(ref, patch)).filter((f) => !agent.owns!.includes(f));
+        expect(outside, `${patch} edits files outside ${agent.agentId}'s ownership`).toEqual([]);
+      }
     });
 
     it("a.patch then b.patch applies cleanly as text", () => {

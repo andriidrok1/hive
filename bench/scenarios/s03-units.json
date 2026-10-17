@@ -6,16 +6,32 @@
     {
       "agentId": "agent-andrii",
       "humanId": "andrii",
-      "task": "Change fixed promos so that Promo.value for kind \"fixed\" is whole dollars instead of cents: applyDiscount in src/discount.ts must multiply it by 100. Update the comment on Promo in src/types.ts and every existing test that uses a fixed promo."
+      "task": "Change fixed promos so that Promo.value for kind \"fixed\" is whole dollars instead of cents: applyDiscount in src/discount.ts must multiply it by 100. Update the comment on Promo in src/types.ts and every existing test that uses a fixed promo. You own src/discount.ts, src/types.ts and the existing tests.",
+      "owns": [
+        "src/discount.ts",
+        "src/types.ts",
+        "test/discount.test.ts",
+        "test/checkout.test.ts"
+      ]
     },
     {
       "agentId": "agent-masha",
       "humanId": "masha",
-      "task": "Add src/promos.ts exporting PROMOS: Record<string, Promo> with a WELCOME5 promo (kind \"fixed\", $5 off, i.e. 500 cents) and findPromo(code: string): Promo | undefined (case-insensitive). Add tests in test/promos.test.ts, including: calculateTotal of a $20 cart with WELCOME5 is $15."
+      "task": "Add src/promos.ts exporting PROMOS: Record<string, Promo> with a WELCOME5 promo (kind \"fixed\", $5 off, i.e. 500 cents) and findPromo(code: string): Promo | undefined (case-insensitive). Add tests in test/promos.test.ts, including: calculateTotal of a $20 cart with WELCOME5 is $15. You own src/promos.ts and test/promos.test.ts; do not edit other files.",
+      "owns": [
+        "src/promos.ts",
+        "test/promos.test.ts"
+      ]
     }
   ],
-  "startDelaysMs": { "agent-andrii": 0, "agent-masha": 20000 },
-  "expectedCulprits": ["agent-andrii", "agent-masha"],
+  "startDelaysMs": {
+    "agent-andrii": 0,
+    "agent-masha": 3000
+  },
+  "expectedCulprits": [
+    "agent-andrii",
+    "agent-masha"
+  ],
   "acceptance": "npm test",
   "extraTests": "test/s03.accept.test.ts",
   "notes": "Units conflict: after A, WELCOME5 with value 500 means $500 off and the $20 cart totals $0. Correct merge: WELCOME5 value 5."

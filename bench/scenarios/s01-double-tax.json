@@ -6,17 +6,32 @@
     {
       "agentId": "agent-andrii",
       "humanId": "andrii",
-      "task": "Make calculateTotal in src/checkout.ts return the final price the customer pays, including state sales tax (use applyTax from src/tax.ts). Add a state parameter that defaults to \"CA\" so existing callers get the taxed price. Update the existing tests so they match the new behavior and add a test for a non-default state."
+      "task": "Make calculateTotal in src/checkout.ts return the final price including state sales tax (use applyTax from src/tax.ts); add a state parameter defaulting to \"CA\". Update test/checkout.test.ts and add a test for a non-default state. You own only src/checkout.ts and test/checkout.test.ts; if other tests go red, tell their owner what calculateTotal now returns.",
+      "owns": [
+        "src/checkout.ts",
+        "test/checkout.test.ts"
+      ]
     },
     {
       "agentId": "agent-masha",
       "humanId": "masha",
-      "task": "Add a state parameter to orderSummary in src/order.ts and show tax as its own line in the receipt: compute total = calculateTotal(items, promo), tax = applyTax(total, state) - total, add a line \"Tax $x.xx\" before the Total line, and make the returned total and the Total line include tax. Add tests."
+      "task": "Add a state parameter to orderSummary in src/order.ts and show tax as its own line in the receipt: compute total = calculateTotal(items, promo), tax = applyTax(total, state) - total, add a line \"Tax $x.xx\" before the Total line, and make the returned total and the Total line include tax. Add tests. You own src/order.ts and test/order.test.ts.",
+      "owns": [
+        "src/order.ts",
+        "test/order.test.ts",
+        "test/order-tax.test.ts"
+      ]
     }
   ],
-  "startDelaysMs": { "agent-andrii": 0, "agent-masha": 20000 },
-  "expectedCulprits": ["agent-andrii", "agent-masha"],
+  "startDelaysMs": {
+    "agent-andrii": 0,
+    "agent-masha": 3000
+  },
+  "expectedCulprits": [
+    "agent-andrii",
+    "agent-masha"
+  ],
   "acceptance": "npm test",
   "extraTests": "test/s01.accept.test.ts",
-  "notes": "Each task alone keeps its suite green. Together orderSummary taxes a total that calculateTotal already taxed. Correct merge: orderSummary gets the pre-tax amount from applyDiscount(subtotal) and the taxed total from calculateTotal(items, promo, state)."
+  "notes": "A alone leaves masha's test/order.test.ts red (totals now include CA tax), which A must report rather than fix. Together orderSummary taxes a total that calculateTotal already taxed. Correct merge: orderSummary gets the pre-tax amount from applyDiscount(subtotal) and the taxed total from calculateTotal(items, promo, state)."
 }

@@ -6,15 +6,26 @@
     {
       "agentId": "agent-andrii",
       "humanId": "andrii",
-      "task": "Add Washington to TAX_RATES in src/tax.ts with the rate 0.065 and add a test that applyTax(10000, \"WA\") returns 10650."
+      "task": "Add Washington to TAX_RATES in src/tax.ts with the rate 0.065 and add a test that applyTax(10000, \"WA\") returns 10650. You own src/tax.ts and test/tax.test.ts.",
+      "owns": [
+        "src/tax.ts",
+        "test/tax.test.ts"
+      ]
     },
     {
       "agentId": "agent-masha",
       "humanId": "masha",
-      "task": "Validate percent promos in applyDiscount in src/discount.ts: if promo.kind is \"percent\" and promo.value is below 0 or above 100, throw an Error whose message contains \"percent\". Add tests for both out-of-range cases and one in-range case."
+      "task": "Validate percent promos in applyDiscount in src/discount.ts: if promo.kind is \"percent\" and promo.value is below 0 or above 100, throw an Error whose message contains \"percent\". Add tests for both out-of-range cases and one in-range case. You own src/discount.ts and test/discount.test.ts.",
+      "owns": [
+        "src/discount.ts",
+        "test/discount.test.ts"
+      ]
     }
   ],
-  "startDelaysMs": { "agent-andrii": 0, "agent-masha": 20000 },
+  "startDelaysMs": {
+    "agent-andrii": 0,
+    "agent-masha": 3000
+  },
   "expectedCulprits": [],
   "acceptance": "npm test",
   "extraTests": "test/c01.accept.test.ts",

@@ -155,7 +155,7 @@ describe("runScenario", () => {
     expect(paths.at(-1)).toBe("POST /api/test");
     expect(server.calls.at(-1)!.body).toEqual({ extraFiles: { "test/s01.accept.test.ts": "// extra" } });
     // the second agent waited its startDelaysMs before starting
-    expect(slept).toContain(20000);
+    expect(slept).toContain(3000);
     const starts = server.calls.filter((c) => c.path === "/api/agents").map((c) => (c.body as { agentId: string }).agentId);
     expect(starts).toEqual(["agent-andrii", "agent-masha"]);
     // the feed was opened before the first agent started and closed at the end
