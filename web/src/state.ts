@@ -273,12 +273,15 @@ export function pendingBriefings(state: UiState): Briefing[] {
   return Object.values(state.briefings).filter((b) => b.requiresAck && !b.ack);
 }
 
-// Agent colour: stable per id, readable on dark.
-const PALETTE = ["#f5a524", "#3b9cff", "#ff5c8a", "#2dd4bf", "#c084fc", "#a3e635", "#fb923c", "#38bdf8"];
+// Agent colours by order of appearance: violet, blue, green, amber, then the rest.
+const PALETTE = ["#7c5cff", "#3b82f6", "#22c55e", "#f59e0b", "#ec4899", "#14b8a6", "#f97316", "#a3e635"];
+const assigned = new Map<string, string>();
 export function agentColor(id: string): string {
-  let h = 0;
-  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
-  return PALETTE[h % PALETTE.length] ?? "#f5a524";
+  const have = assigned.get(id);
+  if (have) return have;
+  const color = PALETTE[assigned.size % PALETTE.length] ?? "#7c5cff";
+  assigned.set(id, color);
+  return color;
 }
 
 export function intentColor(status: IntentStatus, agentId: AgentId): string {

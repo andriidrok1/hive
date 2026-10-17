@@ -1,4 +1,5 @@
 import { Suspense, lazy, useEffect, useState } from "react";
+import { Plus } from "lucide-react";
 import type { SymbolInfo } from "@hive/shared";
 import { intentsForFile, type UiState } from "../state";
 import { fetchFile } from "../api";
@@ -13,33 +14,44 @@ interface Props {
   state: UiState;
   mock: boolean;
   humanId: string;
+  path: string | null; // controlled by App (shared with the project tree)
+  onSelect: (path: string) => void;
 }
 
-export function EditorPane({ state, mock, humanId }: Props) {
+// Which file to open when nothing is selected yet: first src/ file, else the first file.
+export function defaultPath(files: { path: string }[], selected: string | null): string | null {
+  if (selected && files.some((f) => f.path === selected)) return selected;
+  return (files.find((f) => f.path.startsWith("src/")) ?? files[0])?.path ?? null;
+}
+
+export function EditorPane({ state, mock, humanId, path, onSelect }: Props) {
   const files = state.files;
-  const [selected, setSelected] = useState<string | null>(null);
-  const path = selected && files.some((f) => f.path === selected) ? selected : (files.find((f) => f.path.startsWith("src/")) ?? files[0])?.path ?? null;
   const fileRev = files.find((f) => f.path === path)?.rev ?? 0;
   const symbols = useServerSymbols(path, fileRev, mock);
   const intents = path ? intentsForFile(state, path) : [];
 
   return (
-    <section className="grid min-h-0 grid-rows-[36px_auto_1fr] border-r border-border">
-      <nav className="flex items-stretch gap-0.5 overflow-x-auto border-b border-border px-2" aria-label="files">
+    <section className="grid min-h-0 grid-rows-[44px_auto_1fr] bg-background">
+      <nav className="flex items-stretch overflow-x-auto border-b border-border" aria-label="files">
         {files.map((f) => (
           <button
             key={f.path}
             className={cn(
-              "-mb-px flex items-center gap-2 border-b-2 border-transparent px-3 font-mono text-xs text-muted-foreground transition-colors hover:text-foreground",
-              f.path === path && "border-foreground text-foreground",
+              "-mb-px flex items-center gap-2 border-b-2 border-transparent border-r border-r-border px-4 text-[13px] text-muted-foreground transition-colors hover:text-foreground",
+              f.path === path && "border-b-violet bg-panel text-foreground",
             )}
-            onClick={() => setSelected(f.path)}
+            onClick={() => onSelect(f.path)}
+            aria-current={f.path === path ? "true" : undefined}
           >
-            {f.path}
-            <span className="text-[10px] text-zinc-600">@{f.rev}</span>
+            <span className="font-mono text-[11px] font-semibold text-violet/90">TS</span>
+            {f.path.slice(f.path.lastIndexOf("/") + 1)}
+            <span className="font-mono text-[10px] text-zinc-600">@{f.rev}</span>
           </button>
         ))}
-        {files.length === 0 && <span className="px-3 font-mono text-xs text-muted-foreground">no files yet</span>}
+        {files.length === 0 && <span className="px-4 font-mono text-xs leading-[44px] text-muted-foreground">no files yet</span>}
+        <span className="flex items-center px-3 text-muted-foreground" aria-hidden>
+          <Plus className="size-4" />
+        </span>
       </nav>
       {/* Who is in this file: live from intent_declared / intent_status through state.intents. */}
       <PresenceStrip intents={state.intents} openPath={path} />

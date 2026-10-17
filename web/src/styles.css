@@ -2,25 +2,27 @@
 
 /* One neutral scale (zinc) plus semantic accents. Dark only. */
 :root {
-  --background: #09090b;
-  --foreground: #fafafa;
-  --card: #0e0e11;
-  --card-foreground: #fafafa;
-  --popover: #18181b;
-  --popover-foreground: #fafafa;
-  --primary: #fafafa;
-  --primary-foreground: #18181b;
-  --secondary: #27272a;
-  --secondary-foreground: #fafafa;
-  --muted: #18181b;
-  --muted-foreground: #a1a1aa;
-  --accent: #27272a;
-  --accent-foreground: #fafafa;
+  --background: #0b0d14;
+  --foreground: #e6e8ef;
+  --card: #11141d;
+  --card-foreground: #e6e8ef;
+  --popover: #161a25;
+  --popover-foreground: #e6e8ef;
+  --primary: #7c5cff;
+  --primary-foreground: #ffffff;
+  --secondary: #1b1f2b;
+  --secondary-foreground: #e6e8ef;
+  --muted: #161a25;
+  --muted-foreground: #8b90a3;
+  --accent: #1b1f2b;
+  --accent-foreground: #e6e8ef;
   --destructive: #ef4444;
-  --border: #27272a;
-  --input: #3f3f46;
-  --ring: #71717a;
-  --radius: 0.375rem;
+  --border: #1f2330;
+  --input: #2a2f3f;
+  --ring: #7c5cff;
+  --panel: #11141d;
+  --violet: #7c5cff;
+  --radius: 0.5rem;
   color-scheme: dark;
 }
 
@@ -43,6 +45,8 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  --color-panel: var(--panel);
+  --color-violet: var(--violet);
   --radius-sm: calc(var(--radius) - 2px);
   --radius-md: var(--radius);
   --radius-lg: calc(var(--radius) + 2px);
@@ -91,9 +95,54 @@
 .editor .cm-activeLineGutter {
   background: rgba(255, 255, 255, 0.025);
 }
-.cm-yRemoteSelection,
+/* Remote cursors: thin caret in the agent colour, name pill below it ("masha is editing…"). */
+.cm-ySelection {
+  opacity: 0.25;
+}
+.cm-ySelectionCaret {
+  position: relative;
+  border-left-width: 2px;
+  margin-left: -1px;
+}
+.cm-ySelectionCaretDot {
+  display: none;
+}
 .cm-ySelectionInfo {
+  position: absolute;
+  top: 1.45em;
+  left: -2px;
   font-family: var(--font-sans);
+  font-size: 11px;
+  line-height: 18px;
+  font-weight: 500;
+  color: #e6e8ef !important;
+  background: #1b1f2b !important;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0 8px 0 18px !important;
+  white-space: nowrap;
+  opacity: 1 !important;
+  transition: none !important;
+  z-index: 10;
+}
+.cm-ySelectionInfo::before {
+  content: "";
+  position: absolute;
+  left: 6px;
+  top: 5px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--cursor-color, currentColor);
+}
+.cm-ySelectionInfo::after {
+  content: " is editing…";
+  color: #8b90a3;
+}
+
+/* Hexagon avatar */
+.hex {
+  clip-path: polygon(50% 0%, 93% 25%, 93% 75%, 50% 100%, 7% 75%, 7% 25%);
 }
 
 /* Intent label above the target symbol: small mono line, thin bar in the agent colour. */
@@ -144,6 +193,43 @@
 }
 .mockpre .ln.hl {
   border-left-color: var(--c);
+}
+.mockpre .cursor {
+  display: inline-block;
+  position: relative;
+  border-left: 2px solid var(--c);
+  margin-left: -1px;
+  height: 1.2em;
+  vertical-align: text-bottom;
+}
+.mockpre .cursor-pill {
+  position: absolute;
+  top: 1.35em;
+  left: -2px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-sans);
+  font-size: 11px;
+  line-height: 18px;
+  font-weight: 500;
+  color: #e6e8ef;
+  background: #1b1f2b;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0 8px 0 6px;
+  white-space: nowrap;
+  z-index: 5;
+}
+.mockpre .cursor-pill i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--c);
+}
+.mockpre .cursor-pill em {
+  font-style: normal;
+  color: #8b90a3;
 }
 .mockpre .intent-label {
   margin-left: 56px;
