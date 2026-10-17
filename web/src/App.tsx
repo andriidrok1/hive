@@ -18,7 +18,7 @@ import { CulpritTab } from "./components/CulpritTab";
 import { ContractsTab } from "./components/ContractsTab";
 import { StartAgentDialog } from "./components/StartAgentDialog";
 import { SpawnDemoButton } from "./components/SpawnDemoButton";
-import { EditorPane, defaultPath } from "./editor/EditorPane";
+import { EditorPane, defaultPath, type CenterView } from "./editor/EditorPane";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./components/ui/tabs";
 import { TooltipProvider } from "./components/ui/tooltip";
 import { Badge } from "./components/ui/badge";
@@ -41,6 +41,20 @@ export function App({ mockStepMs }: { mockStepMs?: number } = {}) {
   const [showLlm, setShowLlm] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
   const path = defaultPath(state.files, selected);
+  // Center column: editor or store preview; P toggles unless the user is typing somewhere.
+  const [view, setView] = useState<CenterView>("code");
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "p" && e.key !== "P") return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable || t.closest?.(".cm-editor"))) return;
+      e.preventDefault();
+      setView((v) => (v === "code" ? "preview" : "code"));
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
   // Agent the bottom chat box talks to: the one clicked in the list, else your own, else the first working one.
   const [chatAgent, setChatAgent] = useState<string | null>(null);
   const chatTarget =
@@ -100,7 +114,7 @@ export function App({ mockStepMs }: { mockStepMs?: number } = {}) {
         <Rail humanId={humanId} onHumanId={onHumanId} qrUrl={mock ? MOCK_LAN_URL : lanUrl("/m")} />
         <div className="grid min-h-0 min-w-0 grid-cols-[240px_minmax(0,1fr)_400px]">
           <ProjectPanel files={state.files} intents={state.intents} selected={path} onSelect={setSelected} mode={state.mode} />
-          <EditorPane state={state} mock={mock} humanId={humanId} path={path} onSelect={setSelected} lastEdit={lastEdit} />
+          <EditorPane state={state} mock={mock} humanId={humanId} path={path} onSelect={setSelected} lastEdit={lastEdit} view={view} onView={setView} />
           <section className="grid min-h-0 min-w-0 grid-cols-[minmax(0,1fr)] grid-rows-[minmax(0,1fr)] overflow-hidden border-l border-border bg-panel">
             <Tabs value={main} onValueChange={(v) => setMain(v === "activity" ? "activity" : "agents")} className="min-h-0 min-w-0">
               <TabsList className="h-11 px-3">

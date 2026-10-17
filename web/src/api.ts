@@ -26,6 +26,27 @@ export async function fetchFile(path: string): Promise<{ content: string; rev: n
   return (await res.json()) as { content: string; rev: number; symbols: SymbolInfo[] };
 }
 
+// GET /api/preview: the demo app evaluated on the current project (shape from the server brief).
+export interface PreviewData {
+  ok: boolean;
+  items?: unknown;
+  promo?: unknown;
+  summary?: { subtotal: number; discount: number; total: number; lines: string[] };
+  receipt?: string | null;
+  receiptWidth?: number;
+  formatPercent?: string | number | null;
+  negative?: string | number | null;
+  summaryError?: string;
+  receiptError?: string;
+  error?: string;
+}
+
+export async function fetchPreview(): Promise<PreviewData> {
+  const res = await fetch("/api/preview");
+  if (!res.ok) throw new Error(`/api/preview → ${res.status}`);
+  return (await res.json()) as PreviewData;
+}
+
 export async function startAgent(args: { agentId: AgentId; humanId: HumanId; task: string }): Promise<void> {
   if (mockSink) {
     mockSink({ type: "agent_status", agentId: args.agentId, humanId: args.humanId, status: "thinking", task: args.task, step: 1 });

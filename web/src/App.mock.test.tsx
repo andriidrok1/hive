@@ -83,6 +83,17 @@ describe("App in ?mock=1 mode", () => {
     fireEvent.click(screen.getByTestId("file-test/checkout.test.ts"));
     expect(screen.getByTestId("mock-editor").textContent).toContain('describe("checkout"');
 
+    // P switches the center column to the store preview (static sample in mock mode), P again back to code.
+    fireEvent.keyDown(window, { key: "p" });
+    expect(screen.getByTestId("view-preview").getAttribute("aria-selected")).toBe("true");
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(screen.getByTestId("preview")).toBeTruthy();
+    expect(screen.getByTestId("receipt-lines").textContent).toContain("Items: 5");
+    fireEvent.keyDown(window, { key: "p" });
+    expect(screen.getByTestId("mock-editor")).toBeTruthy();
+
     // The avatar popover holds the "you" field and the phone QR link.
     fireEvent.click(screen.getByLabelText("You"));
     expect((screen.getByLabelText("your human id") as HTMLInputElement).value).toBe("andrii");
