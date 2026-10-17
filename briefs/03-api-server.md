@@ -15,7 +15,7 @@ One process that holds all state, exposes the agent tool API and the human/UI AP
 - `server/src/api/ws.ts`: `/ws/feed` broadcast and `/yjs/project` y-websocket bound to `ProjectStore.ydoc`.
 - `server/src/agents/AgentManager.ts`: `start({agentId, humanId, task})` runs `runAgent` from `@hive/agent` with a `HiveClient` that calls the tool handlers **directly in-process** (no HTTP hop) and an `AbortController` per agent; `control(agentId, c)`; `note(...)` pushes a `human_note` briefing and, if urgent, aborts the in-flight model call (the loop retries the step with the note). Emits `agent_status`.
 - `server/src/hive.ts`: `createHive({ mode, projectDir, runner, llm })` builds ProjectStore, ReadLog, History, CallGraph, BriefingQueue, IntentRegistry, ChangeWatcher, Mailbox, TestOrchestrator, AgentManager, wires `store.onChange` → CallGraph.update + ChangeWatcher + History, and returns them; `reset(mode)` rebuilds.
-- `server/src/index.ts`: loads `.env` from the repo root, picks runner (`HIVE_RUNNER`), LLM (`OpenAILLM` if key, else a FakeLLM that always answers no-conflict and echoes a generic meaning, with a console warning), listens on 4317, CORS for 5173. `npm run dev -w @hive/server` → `tsx watch src/index.ts`.
+- `server/src/index.ts`: loads `.env` from the repo root, picks runner (`HIVE_RUNNER`), LLM (`OpenAILLM` if key, else a FakeLLM that always answers no-conflict and echoes a generic meaning, with a console warning), listens on `0.0.0.0` at `PORT` (default 4317) so a phone on the LAN can reach it, CORS for any origin on port 5173. `npm run dev -w @hive/server` → `tsx watch src/index.ts`.
 
 ## Isolated mode
 

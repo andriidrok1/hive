@@ -35,7 +35,7 @@ Input: green snapshot G, change sets S1..Sn (n ≤ 6; if more, take the last 6).
 3. LocalRunner `runCommand("node -e 'console.log(1)'")` → exitCode 0, stdout "1".
 4. Timeout kills a hanging command.
 5. Culprit single: S1 (format change, harmless) + S2 (breaks discount) → `single [S2]`.
-6. Culprit pair: S1 makes `calculateTotal` include tax, S2 makes `applyTax` multiply again; each alone green (tests written so), together red → `pair [S1, S2]`.
+6. Culprit pair: S1 makes `calculateTotal` include tax and updates `calculateTotal`'s tests; S2 adds an `orderSummary` tax line computed as `applyTax(calculateTotal(...)) - calculateTotal(...)` with a test that assumes `calculateTotal` has no tax. Each alone green, together S2's test is red → `pair [S1, S2]`. Build S1/S2 as `ChangeSet`s with `edits` made by real `createPatch` calls on the fixture.
 7. Culprit with a patch that only applies after another → `dependent`.
 8. TestOrchestrator with fakes: green path marks `verified` and saves a green snapshot; red path emits culprit events and pushes briefings to the right agents.
 9. `check` failure → `verification_failed` to dependents.

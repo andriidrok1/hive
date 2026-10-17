@@ -12,9 +12,13 @@ Every build agent gets: `CONTRACTS.md`, `shared/src/contracts.ts`, its brief, an
 | 06 web UI | `web/` | nothing (mock feed) | now |
 | 03 API server | `server/src/api/`, `agents/`, `index.ts`, `emit.ts`, `hive.ts` | 01, 02, 04, 05 (stubs until merged) | now, integrate at ~13:30 |
 
-## Shared install
+## Launch
 
-The human runs `npm install` at the root once after the first merges add dependencies. Agents in worktrees run `npm install` in their worktree.
+1. `sh scripts/make-worktrees.sh` from the repo root: creates `../hive-wt/<brief>/` on branch `build/<brief>` for each brief, copies `.env` (gitignored, so worktrees do not get it otherwise) and runs `npm ci`.
+2. Start each build agent with its working directory set to its worktree and the instruction: "Read CONTRACTS.md, shared/src/contracts.ts and briefs/<brief>.md, then do the brief. Work only in your folder. Commit to your branch when the Done criteria pass." The worktrees are created by the script, not by the agent tool's own isolation (that would branch the wrong repo).
+3. Merge with `git merge build/<brief>` in the main repo after checking `git diff main...build/<brief> --stat` touches only the owner's folder.
+
+Dependencies are already installed and locked; nobody runs `npm install <pkg>`.
 
 ## Checkpoints
 

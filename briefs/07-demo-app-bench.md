@@ -50,6 +50,8 @@ Write 6 conflict scenarios and 2 controls:
 7. c01 control: one adds `TAX_RATES.WA`, the other adds a `percent` promo validation. No conflict.
 8. c02 control: one improves `formatPrice` for negative values, the other adds an `itemCount(items)` helper. No conflict.
 
+Important: an agent that changes a function's behavior also updates that function's existing tests (a real agent would). So each reference patch (`a.patch`, `b.patch`) includes its own test updates and new tests, and "alone green" means the suite as modified by that patch. The combination fails because each side's tests and code assume the other side's old behavior (for s01: A's change makes `calculateTotal` include tax and updates its tests; B's new `orderSummary` tax line and its test assume `calculateTotal` has no tax, so together B's test fails and the extraTest fails).
+
 For each scenario verify by hand (write the reference solutions in `bench/reference/<id>/a.patch`, `b.patch`, `combined.patch`) that: each patch alone keeps the original suite green, a+b combined applies cleanly with `git apply` and fails the suite plus extraTests (for conflict scenarios), and `combined.patch` (the correct merge) passes. Add `bench/test/scenarios.test.ts` that checks these properties automatically with a local temp dir.
 
 ## Part 3: experiment runner (`bench/src/run.ts`), target 60 minutes
