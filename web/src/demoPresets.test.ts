@@ -55,5 +55,7 @@ describe("spawnDemoAgents", () => {
     expect(DEMO_PRESETS[1]?.task).toContain('"7.5%" for 7.5');
     expect(DEMO_PRESETS[1]?.task).toContain("You own src/format.ts and test/format.test.ts.");
     expect(DEMO_PRESETS[0]?.task).toContain("In src/order.ts add two exported functions");
+    expect(DEMO_PRESETS[0]?.task).toContain("Never edit orderSummary or its existing tests: if they go red, tell their owner via ask_agent and keep your own tests green.");
+    expect(DEMO_PRESETS[0]?.task).not.toContain("do not change orderSummary itself");
   });
 });
