@@ -189,7 +189,7 @@ export class PreviewSite {
     await this.ensure();
     const vm = this.vm!;
     await this.writePreviewFiles(vm);
-    await vm.exec({ command: "pkill -f preview-server.mjs || true; sleep 0.5", timeoutMs: 20_000 });
+    await vm.exec({ command: "pgrep -f 'preview-serve[r].mjs' | xargs -r kill; sleep 0.5", timeoutMs: 20_000 });
     await this.startServer(vm);
     this.log("preview server redeployed");
   }
@@ -314,33 +314,40 @@ function run() {
 }
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 const money = (c) => (typeof c === "number" ? "$" + (c / 100).toFixed(2) : "—");
+const BAD = /\\$-?\\d+\\.\\d+\\.\\d+|\\$-\\d+\\.-?\\d+|\\d+%%|NaN|undefined/g; // unrounded cents, "$-2.-50", "10%%"
+const mark = (l) => esc(l).replace(BAD, (m) => "<mark>" + m + "</mark>");
 function html(d) {
   const s = d.summary || {};
-  const items = (d.items || []).map((i) => "<tr><td>" + esc(i.sku) + " ×" + i.qty + "</td><td class=r>" + money(i.priceCents * i.qty) + "</td></tr>").join("");
   const caps = Object.entries(d.capabilities || {}).map(([m, fns]) => "<div><b>" + esc(m) + "</b> " + fns.map(esc).join(", ") + "</div>").join("");
   const err = d.error ? '<div class=err>⚠ ' + esc(d.error) + "</div>" : "";
-  const lines = (s.lines || []).map((l) => "<div>" + esc(l) + "</div>").join("");
   const receiptText = d.receipt == null ? "" : Array.isArray(d.receipt) ? d.receipt.join("\\n") : typeof d.receipt === "string" ? d.receipt : JSON.stringify(d.receipt, null, 1);
-  const receipt = receiptText ? '<div class=receipt><b>receipt()</b>\\n' + esc(receiptText) + "</div>" : d.receiptError ? '<div class=err>receipt(): ' + esc(d.receiptError) + "</div>" : "";
-  const extras = [d.formatPercent != null ? "formatPercent(10) → " + esc(d.formatPercent) : "formatPercent: —", d.negative != null ? "formatPrice(-150) → " + esc(d.negative) : "formatPrice(-150): —"].join(" · ");
+  const bodyLines = receiptText ? receiptText.split("\\n") : (s.lines || []);
+  const bodyText = bodyLines.join("\\n");
+  const broken = BAD.test(bodyText); BAD.lastIndex = 0;
+  const body = bodyLines.length ? bodyLines.map((l) => "<div>" + (mark(l) || "&nbsp;") + "</div>").join("") : "<i>orderSummary unavailable</i>";
+  const badge = err || broken ? '<div class="badge bad">✗ receipt broken: unrounded cents</div>' : receiptText ? '<div class="badge ok">✓ receipt() · clean</div>' : '<div class="badge warn">orderSummary() only · no receipt() yet</div>';
+  const chip = (ok, label, val) => '<div class="chip ' + (ok ? "ok" : "bad") + '">' + (ok ? "✓" : "✗") + " " + esc(label) + (val != null ? " <span>" + mark(String(val)) + "</span>" : "") + "</div>";
+  const pctOk = typeof d.formatPercent === "string" && /^\\d+(\\.\\d+)?%$/.test(d.formatPercent);
+  const negOk = typeof d.negative === "string" && /^-\\$\\d+\\.\\d{2}$/.test(d.negative);
+  const chips = chip(Boolean(receiptText) && !d.receiptError, "receipt()", d.receiptError || (receiptText ? "Items header + footer" : "missing")) +
+    chip(pctOk, "formatPercent(10)", d.formatPercent ?? "missing") +
+    chip(negOk, "formatPrice(-150)", d.negative ?? "missing") +
+    chip(!broken, "whole cents", broken ? "fractional" : "rounded");
   return '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="refresh" content="3"><title>Hive Coffee receipt</title><style>' +
     "body{margin:0;background:#2b2b2b;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:#222;display:flex;justify-content:center;padding:32px 16px}" +
-    ".paper{background:#fdfdf8;width:min(380px,100%);padding:28px 24px 40px;box-shadow:0 12px 40px rgba(0,0,0,.5);position:relative}" +
+    ".paper{background:#fdfdf8;width:min(420px,100%);padding:28px 24px 40px;box-shadow:0 12px 40px rgba(0,0,0,.5);position:relative}" +
     ".paper:after{content:'';position:absolute;left:0;right:0;bottom:-10px;height:12px;background:radial-gradient(circle,transparent 6px,#fdfdf8 7px) 0 -6px/16px 16px repeat-x}" +
-    "h1{font-size:16px;letter-spacing:.12em;text-align:center;margin:0 0 4px}.sub{text-align:center;font-size:11px;color:#666;margin-bottom:16px}" +
-    "table{width:100%;border-collapse:collapse;font-size:13px}td{padding:3px 0}.r{text-align:right}.tot td{border-top:1px dashed #999;padding-top:8px;font-weight:bold}" +
-    ".lines{margin:14px 0;padding:10px 0;border-top:1px dashed #999;border-bottom:1px dashed #999;font-size:12px;white-space:pre}" +
-    ".receipt{margin:14px 0 0;padding:10px;background:#f3f3ea;font-size:12px;white-space:pre-wrap;border:1px dashed #bbb}" +
+    "h1{font-size:17px;letter-spacing:.12em;text-align:center;margin:0 0 4px}.sub{text-align:center;font-size:11px;color:#666;margin-bottom:14px}" +
+    ".badge{text-align:center;font-size:12px;font-weight:bold;padding:7px 10px;margin:0 0 14px;border-radius:4px}.badge.bad{background:#fde2e2;color:#9b1c1c}.badge.ok{background:#dcf5e3;color:#166534}.badge.warn{background:#fff3cd;color:#7a5a00}" +
+    ".body{margin:0;padding:14px 0;border-top:2px dashed #999;border-bottom:2px dashed #999;font-size:15px;line-height:1.7;white-space:pre}" +
+    "mark{background:#fecaca;color:#9b1c1c;font-weight:bold;padding:0 3px;border-radius:2px;text-decoration:underline wavy #dc2626}" +
+    ".chips{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:14px;font-size:11px}.chip{padding:6px 8px;border-radius:4px;border:1px solid}.chip.ok{background:#f0fdf4;border-color:#86efac;color:#166534}.chip.bad{background:#fef2f2;border-color:#fca5a5;color:#991b1b}.chip span{display:block;color:#333;margin-top:2px}" +
     ".caps{font-size:10px;color:#555;margin-top:16px;line-height:1.5}.err{background:#fde8e8;color:#9b1c1c;padding:8px;font-size:12px;margin:12px 0}" +
     ".foot{text-align:center;font-size:10px;color:#888;margin-top:18px}</style></head><body><div class=paper>" +
     "<h1>HIVE COFFEE · Order #1042</h1><div class=sub>" + esc(d.generatedAt || "") + " · promo " + esc((d.promo || {}).code || "") + "</div>" +
-    err + "<table>" + items +
-    '<tr class=tot><td>Subtotal</td><td class=r>' + money(s.subtotal) + "</td></tr>" +
-    "<tr><td>Discount</td><td class=r>-" + money(s.discount) + "</td></tr>" +
-    "<tr class=tot><td>Total</td><td class=r>" + money(s.total) + "</td></tr>" +
-    (typeof d.taxedTotalCA === "number" ? "<tr><td>Total incl. CA tax</td><td class=r>" + money(d.taxedTotalCA) + "</td></tr>" : "") +
-    "</table>" + receipt + "<div class=lines>" + (lines || "<i>orderSummary unavailable</i>") + "</div>" +
-    "<div class=caps><b>capabilities</b>" + caps + "<div>" + extras + "</div></div><div class=foot>live from the Hive project · refreshes every 3s</div></div></body></html>";
+    badge + err + '<div class=body>' + body + "</div>" +
+    '<div class=chips>' + chips + "</div>" +
+    "<div class=caps><b>exports</b>" + caps + "</div><div class=foot>" + (receiptText ? "receipt()" : "orderSummary()") + " · live from the Hive project · refreshes every 3s</div></div></body></html>";
 }
 createServer(async (req, res) => {
   if (req.url === "/health") { res.writeHead(200); return res.end("ok"); }

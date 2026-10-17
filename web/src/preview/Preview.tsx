@@ -1,3 +1,4 @@
+import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Check, Columns2, ExternalLink, QrCode, RefreshCw, X } from "lucide-react";
 import { fetchPreview, fetchPreviewSite, type PreviewData } from "../api";
@@ -189,7 +190,7 @@ export function ReceiptCard({ data, title, rev, muted = false }: { data: Preview
         {data.summaryError && !hasReceipt && <div className="text-xs text-red-700">{data.summaryError}</div>}
         {data.receiptError && <div className="text-xs text-red-700">{data.receiptError}</div>}
         <pre className="m-0 whitespace-pre text-[12.5px] leading-[1.6]" data-testid="receipt-lines">
-          {lines.length ? lines.join("\n") : "(no lines)"}
+          {lines.length ? lines.map((l, i) => <Line key={i} text={l} />) : "(no lines)"}
         </pre>
         <div className="my-2 border-t border-dashed border-[#1b1b1b]/30" />
         <div className="text-center text-[10px] text-[#5a5a5a]">{hasReceipt ? `receipt() · width ${data.receiptWidth ?? lines.reduce((m, l) => Math.max(m, l.length), 0)}` : "orderSummary()"}</div>
@@ -227,5 +228,29 @@ function Cap({ ok, label, value }: { ok: boolean; label: string; value?: string 
       {label}
       {value && <span className="text-foreground/80">{value}</span>}
     </span>
+  );
+}
+
+// Unrounded cents ("$5.64.6999"), "$-2.-50" and "10%%" are the project's live bugs: paint them red so before/after reads at a glance.
+const BAD = /\$-?\d+\.\d+\.\d+|\$-\d+\.-?\d+|\d+%%|NaN|undefined/g;
+function Line({ text }: { text: string }) {
+  const parts: React.ReactNode[] = [];
+  let last = 0;
+  for (const m of text.matchAll(BAD)) {
+    const at = m.index ?? 0;
+    if (at > last) parts.push(text.slice(last, at));
+    parts.push(
+      <span key={at} className="rounded-sm bg-red-200 px-0.5 font-semibold text-red-800 underline decoration-wavy decoration-red-600" data-testid="broken-value">
+        {m[0]}
+      </span>,
+    );
+    last = at + m[0].length;
+  }
+  if (last < text.length) parts.push(text.slice(last));
+  return (
+    <>
+      {parts.length ? parts : text}
+      {"\n"}
+    </>
   );
 }
