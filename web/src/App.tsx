@@ -123,14 +123,13 @@ export function App({ mockStepMs }: { mockStepMs?: number } = {}) {
                   </Button>
                   <Button
                     variant="outline"
-                    size="sm"
-                    className="ml-1.5"
+                    size="icon"
+                    className="ml-1.5 size-7 shrink-0"
                     title="Spawn demo agents: agent-alex now, agent-nika 3 s later"
                     aria-label="Spawn demo agents"
                     onClick={() => void spawnDemoAgents()}
                   >
                     <Users />
-                    Spawn demo
                   </Button>
                 </TabsList>
 
