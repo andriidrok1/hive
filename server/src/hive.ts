@@ -1,29 +1,27 @@
 // createHive: builds every module, wires store.onChange -> History + CallGraph + ChangeWatcher,
 // saves the green baseline, creates the AgentManager and the Fastify app, and supports reset(mode).
 //
-// Core (ProjectStore, ReadLog, History) and the agent loop (@hive/agent) are imported directly.
-// Coord and runner constructors are injected (HiveModules) against the structural interfaces in
-// api/deps.ts: index.ts passes the real classes where they exist and the fakes otherwise.
+// Core, coord and the agent loop (@hive/agent) are imported directly. The runner's TestOrchestrator
+// is injected (HiveModules) against the structural interface in api/deps.ts until brief 04 lands;
+// index.ts passes the real class once it exists and the fake otherwise.
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import type { FeedEventBody, HiveMode, LLM, Runner } from "@hive/shared";
 import { runAgent as realRunAgent } from "@hive/agent";
 import { createEmitter } from "./emit.js";
 import { History, ProjectStore, ReadLog } from "./core/index.js";
+import { analyzeFile, BriefingQueue, CallGraph, ChangeWatcher, IntentRegistry, Mailbox } from "./coord/index.js";
 import { buildApp, type BuiltApp } from "./api/app.js";
 import type {
-  AnalyzeFile,
   BriefingQueueLike,
   CallGraphLike,
-  ChangeWatcherLike,
+  HistoryLike,
   HiveContext,
   HiveDeps,
   IntentRegistryLike,
-  MailboxLike,
   ProjectStoreLike,
   ProjectStoreOptions,
   ReadLogLike,
-  HistoryLike,
   TestOrchestratorLike,
 } from "./api/deps.js";
 import { toolHandlers } from "./api/tools.js";
@@ -33,19 +31,6 @@ import { AgentManager, type RunAgentFn } from "./agents/AgentManager.js";
 type OnEvent = (e: FeedEventBody) => void;
 
 export interface HiveModules {
-  CallGraph: new () => CallGraphLike;
-  BriefingQueue: new (opts?: { onEvent?: OnEvent }) => BriefingQueueLike;
-  IntentRegistry: new (deps: { llm: LLM; graph: CallGraphLike; reads: ReadLogLike; briefings: BriefingQueueLike; onEvent: OnEvent; mode: HiveMode }) => IntentRegistryLike;
-  ChangeWatcher: new (deps: {
-    llm: LLM;
-    graph: CallGraphLike;
-    reads: ReadLogLike;
-    intents: IntentRegistryLike;
-    briefings: BriefingQueueLike;
-    onEvent: OnEvent;
-    mode: HiveMode;
-  }) => ChangeWatcherLike;
-  Mailbox: new (deps: { briefings: BriefingQueueLike; onEvent: OnEvent }) => MailboxLike;
   TestOrchestrator: new (deps: {
     store: ProjectStoreLike;
     history: HistoryLike;
@@ -57,14 +42,14 @@ export interface HiveModules {
     onEvent: OnEvent;
     mode: HiveMode;
   }) => TestOrchestratorLike;
-  analyzeFile: AnalyzeFile;
 }
 
 export interface CreateHiveOptions {
   mode: HiveMode;
   initialFiles: Record<string, string>;
   runner: Runner;
-  llm: LLM;
+  /** An LLM, or a factory that receives the feed emit function (OpenAILLM emits llm_call for checks). */
+  llm: LLM | ((emit: OnEvent) => LLM);
   modules: HiveModules;
   /** Defaults to runAgent from @hive/agent; tests inject a scripted one. */
   runAgent?: RunAgentFn;
@@ -86,6 +71,7 @@ export function createHive(opts: CreateHiveOptions): Hive {
   const emit: OnEvent = (e) => {
     emitter.emit(e);
   };
+  const llm: LLM = typeof opts.llm === "function" ? opts.llm(emit) : opts.llm;
 
   const buildDeps = (mode: HiveMode): HiveDeps => {
     const m = opts.modules;
@@ -94,22 +80,22 @@ export function createHive(opts: CreateHiveOptions): Hive {
     store.loadFiles(opts.initialFiles);
     const reads = new ReadLog();
     const history = new History(store);
-    const graph = new m.CallGraph();
+    const graph = new CallGraph();
     graph.update(store.allFiles());
-    const briefings = new m.BriefingQueue({ onEvent: emit });
-    const intents = new m.IntentRegistry({ llm: opts.llm, graph, reads, briefings, onEvent: emit, mode });
-    const watcher = new m.ChangeWatcher({ llm: opts.llm, graph, reads, intents, briefings, onEvent: emit, mode });
-    const mailbox = new m.Mailbox({ briefings, onEvent: emit });
+    const briefings = new BriefingQueue({ onEvent: emit });
+    const intents = new IntentRegistry({ llm, graph, reads, briefings, onEvent: emit, mode });
+    const watcher = new ChangeWatcher({ llm, graph, reads, intents, briefings, onEvent: emit, mode });
+    const mailbox = new Mailbox({ briefings, onEvent: emit });
     const orchestrator = new m.TestOrchestrator({ store, history, intents, briefings, reads, graph, runner: opts.runner, onEvent: emit, mode });
 
     // The only subscription to store.onChange: History records edits, CallGraph re-analyzes, ChangeWatcher briefs.
     store.onChange((c) => {
-      history.recordEdit(c);
       try {
         graph.update(store.allFiles());
       } catch (err) {
         console.error("[hive] call graph update failed:", err instanceof Error ? err.message : err);
       }
+      history.recordEdit(c);
       void watcher.onEdit(c).catch((err: unknown) => {
         console.error("[hive] change watcher failed:", err instanceof Error ? err.message : err);
       });
@@ -129,7 +115,7 @@ export function createHive(opts: CreateHiveOptions): Hive {
       mailbox,
       orchestrator,
       runner: opts.runner,
-      analyzeFile: m.analyzeFile,
+      analyzeFile,
       initialFiles: opts.initialFiles,
       createStore,
     };

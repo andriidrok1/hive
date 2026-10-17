@@ -1,6 +1,7 @@
 import type { FeedEvent, HiveMode, ToolArgs, ToolName, ToolResponse, ToolResults } from "@hive/shared";
 import { createHive, type Hive } from "../../src/hive.js";
-import { fakeModules, FakeRunner, NoConflictLLM } from "../../src/api/fakes.js";
+import { fakeModules, FakeRunner } from "../../src/api/fakes.js";
+import { noopLLM } from "../../src/coord/index.js";
 import { SAMPLE_PROJECT } from "../../src/api/sampleProject.js";
 import type { AgentRunOptions, AgentRunResult, RunAgentFn } from "../../src/agents/AgentManager.js";
 
@@ -23,7 +24,7 @@ export async function makeHive(opts: { mode?: HiveMode; runAgent?: RunAgentFn; f
     mode: opts.mode ?? "hive",
     initialFiles: opts.files ?? SAMPLE_PROJECT,
     runner,
-    llm: new NoConflictLLM(),
+    llm: noopLLM(),
     modules: fakeModules(),
     runAgent: opts.runAgent ?? neverEndingRun,
   });

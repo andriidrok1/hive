@@ -294,7 +294,7 @@ async function execute<T extends ToolName>(ctx: HiveContext, h: ToolHandlers, ag
       if (!["approved", "in_progress", "conflict", "declared"].includes(intent.status)) {
         throw new ToolError("INTENT_NOT_APPROVED", `${a.intentId} is already ${intent.status}`);
       }
-      d.intents.setStatus(a.intentId, "done");
+      d.intents.setStatus(a.intentId, "done", { rev: store.rev });
       try {
         d.history.finishIntent(a.intentId);
       } catch {

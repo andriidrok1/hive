@@ -3,9 +3,10 @@ import { config as loadEnv } from "dotenv";
 import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { HiveMode, LLM, Runner } from "@hive/shared";
+import type { FeedEventBody, HiveMode, LLM, Runner } from "@hive/shared";
 import { createHive, loadProjectDir } from "./hive.js";
-import { fakeModules, FakeRunner, NoConflictLLM } from "./api/fakes.js";
+import { fakeModules, FakeRunner } from "./api/fakes.js";
+import { noopLLM, OpenAILLM } from "./coord/index.js";
 import { SAMPLE_PROJECT } from "./api/sampleProject.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -24,24 +25,21 @@ if (!Object.keys(initialFiles).some((p) => p.startsWith("src/"))) {
   initialFiles = SAMPLE_PROJECT;
 }
 
-// Core (server/src/core) and the agent loop (@hive/agent) are real, wired inside createHive.
-// TODO(integration): replace the fakes once merged into main:
-//   coord -> CallGraph, BriefingQueue, IntentRegistry, ChangeWatcher, Mailbox, OpenAILLM/FakeLLM, analyzeFile (server/src/coord)
-//   runner-> makeRunner(env), TestOrchestrator (server/src/runner)
+// Core, coord and the agent loop (@hive/agent) are real, wired inside createHive.
+// TODO(integration, brief 04): once server/src/runner is merged, replace the two lines below with
+//   const runner = makeRunner(process.env); const modules = { TestOrchestrator };
 const modules = fakeModules();
 const runner: Runner = new FakeRunner();
 console.warn("[hive] runner: in-memory fake (real runner not merged yet)");
 
-let llm: LLM;
+let llm: LLM | ((emit: (e: FeedEventBody) => void) => LLM);
 if (env.OPENAI_API_KEY) {
-  console.warn("[hive] OPENAI_API_KEY is set but coord.OpenAILLM is not merged yet; using the no-conflict fake LLM");
-  llm = new NoConflictLLM();
+  const apiKey = env.OPENAI_API_KEY;
+  llm = (onEvent) => new OpenAILLM({ apiKey, model: env.HIVE_MODEL_CHECK ?? "gpt-5.4-nano", onEvent });
 } else {
-  console.warn("[hive] OPENAI_API_KEY not set: conflict checks use a fake LLM that never sees a conflict");
-  llm = new NoConflictLLM();
+  console.warn("[hive] OPENAI_API_KEY not set: conflict checks use a no-op LLM that never sees a conflict, and POST /api/agents will fail at the first model call");
+  llm = noopLLM();
 }
-
-if (!env.OPENAI_API_KEY) console.warn("[hive] OPENAI_API_KEY not set: POST /api/agents will fail at the first model call");
 
 const hive = createHive({ mode, initialFiles, runner, llm, modules, ...(env.HIVE_MODEL_AGENT ? { model: env.HIVE_MODEL_AGENT } : {}) });
 await hive.built.ready;

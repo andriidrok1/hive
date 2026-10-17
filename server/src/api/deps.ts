@@ -96,7 +96,7 @@ export interface IntentRegistryLike {
   declare(agentId: AgentId, humanId: HumanId, input: IntentInput, rev: Rev): Promise<DeclareIntentResult>;
   get(id: IntentId): Intent | undefined;
   list(): Intent[];
-  setStatus(id: IntentId, status: IntentStatus): void;
+  setStatus(id: IntentId, status: IntentStatus, opts?: { rev?: Rev }): void;
   canEdit(agentId: AgentId, intentId: IntentId): CanEditResult;
   humanEditOutput(humanId: HumanId, intentId: IntentId, newOutput: string): void;
   resolveConflict(humanId: HumanId, keepIntentId: IntentId, cancelIntentId: IntentId): void;
