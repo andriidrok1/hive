@@ -24,20 +24,26 @@ export interface ActivityRow {
 // Short rows for the "Recent activity" list: actor (human name) + what, no routine reads or llm calls.
 export function activityRows(state: UiState, limit = 6): ActivityRow[] {
   const human = (agentId: string) => state.agents.find((a) => a.agentId === agentId)?.humanId ?? agentId;
+  const owner = (intentId: string) => state.intents.find((i) => i.id === intentId)?.agentId;
   const rows: ActivityRow[] = [];
   for (const e of state.events) {
     if (rows.length >= limit) break;
-    const r = describe(e, human);
+    const r = describe(e, human, owner);
     if (r) rows.push({ id: e.id, ts: e.ts, ...r });
   }
   return rows;
 }
 
-function describe(e: FeedEvent, human: (id: string) => string): Omit<ActivityRow, "id" | "ts"> | null {
+function describe(e: FeedEvent, human: (id: string) => string, owner: (intentId: string) => string | undefined): Omit<ActivityRow, "id" | "ts"> | null {
   switch (e.type) {
     case "llm_call":
     case "file_read":
       return null;
+    case "intent_status": {
+      const a = owner(e.intentId);
+      const tone = e.status === "verified" ? "#22c55e" : e.status === "failed" || e.status === "conflict" ? "#ef4444" : a ? agentColor(a) : "#8b90a3";
+      return { actor: a ? human(a) : "hive", color: tone, text: `${e.intentId} ${e.status.replace("_", " ")}` };
+    }
     case "message_sent":
       return { actor: `${human(e.message.from)} → ${human(e.message.to)}`, color: agentColor(e.message.from), text: e.message.text };
     case "briefing_sent": {
@@ -55,7 +61,7 @@ function describe(e: FeedEvent, human: (id: string) => string): Omit<ActivityRow
     case "edit_applied":
       return { actor: human(e.agentId), color: agentColor(e.agentId), text: `edited ${e.path} (+${e.added} −${e.removed})` };
     case "agent_status":
-      return { actor: human(e.agentId), color: agentColor(e.agentId), text: `${e.status}${e.task ? `: ${e.task}` : ""}` };
+      return { actor: human(e.agentId), color: agentColor(e.agentId), text: e.task && e.step === 1 ? `started: ${e.task}` : e.status };
     case "test_run_finished":
       return { actor: "tests", color: e.result.ok ? "#22c55e" : "#ef4444", text: e.result.ok ? `all ${e.result.passed} passed @${e.rev}` : `${e.result.failed} failed @${e.rev}` };
     case "culprit_found":
@@ -126,7 +132,7 @@ export function ProjectActivity({ state, now, onShowAll }: { state: UiState; now
 function Tile({ value, label, testId }: { value: React.ReactNode; label: string; testId?: string }) {
   return (
     <div className="flex flex-col items-center gap-0.5 rounded-lg border border-border bg-background py-3" data-testid={testId}>
-      <span className="font-mono text-[22px] font-semibold leading-none">{value}</span>
+      <span className="text-[22px] font-semibold leading-none tabular-nums">{value}</span>
       <span className="text-xs text-muted-foreground">{label}</span>
     </div>
   );
