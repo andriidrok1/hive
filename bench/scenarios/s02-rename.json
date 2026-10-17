@@ -4,8 +4,8 @@
   "conflict": true,
   "agents": [
     {
-      "agentId": "agent-andrii",
-      "humanId": "andrii",
+      "agentId": "agent-oleg",
+      "humanId": "oleg",
       "task": "Rename formatPrice to formatCents everywhere: src/format.ts, every call site (src/order.ts) and every test. Do not keep an alias or re-export for the old name. You own src/format.ts, src/order.ts and their existing tests.",
       "owns": [
         "src/format.ts",
@@ -25,11 +25,11 @@
     }
   ],
   "startDelaysMs": {
-    "agent-andrii": 0,
+    "agent-oleg": 0,
     "agent-masha": 3000
   },
   "expectedCulprits": [
-    "agent-andrii",
+    "agent-oleg",
     "agent-masha"
   ],
   "acceptance": "npm test",

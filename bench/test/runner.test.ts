@@ -112,10 +112,10 @@ describe("runScenario", () => {
           type: "intent_declared",
           intent: { id: "B1", agentId, humanId, status: "conflict", createdAt: 0, updatedAt: 0, baseRev: 1, target: { file: "src/order.ts", symbol: "orderSummary" }, action: "modify", what: "w", input: "i", output: "o" },
           conflicts: [{ intentId: "A1", kind: "contradiction", reason: "tax twice" }],
-          dependents: ["agent-andrii"],
+          dependents: ["agent-oleg"],
         });
-        server.emit({ type: "briefing_sent", briefing: { id: "br_1", toAgent: "agent-andrii", kind: "intent_conflict", summary: "s", details: {}, requiresAck: true, createdAt: 0 } });
-        server.emit({ type: "briefing_acked", briefingId: "br_1", agentId: "agent-andrii", ack: { response: "adapted", at: 0 } });
+        server.emit({ type: "briefing_sent", briefing: { id: "br_1", toAgent: "agent-oleg", kind: "intent_conflict", summary: "s", details: {}, requiresAck: true, createdAt: 0 } });
+        server.emit({ type: "briefing_acked", briefingId: "br_1", agentId: "agent-oleg", ack: { response: "adapted", at: 0 } });
       }
       return r;
     };
@@ -173,9 +173,9 @@ describe("runScenario", () => {
     // the second agent waited its startDelaysMs before starting
     expect(slept).toContain(3000);
     const startBodies = server.calls.filter((c) => c.path === "/api/agents").map((c) => c.body as { agentId: string; humanId: string; task: string; owns: string[] });
-    expect(startBodies.map((b) => b.agentId)).toEqual(["agent-andrii", "agent-masha"]);
+    expect(startBodies.map((b) => b.agentId)).toEqual(["agent-oleg", "agent-masha"]);
     // each agent's ownership list from the scenario file rides along in the start body
-    expect(startBodies[0]).toEqual({ agentId: "agent-andrii", humanId: "andrii", task: s01.agents[0]!.task, owns: s01.agents[0]!.owns });
+    expect(startBodies[0]).toEqual({ agentId: "agent-oleg", humanId: "oleg", task: s01.agents[0]!.task, owns: s01.agents[0]!.owns });
     expect(startBodies[1]!.owns).toEqual(s01.agents[1]!.owns);
     expect(startBodies[1]!.owns).toContain("src/order.ts");
     // the feed was opened before the first agent started and closed at the end

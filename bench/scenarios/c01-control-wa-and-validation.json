@@ -4,8 +4,8 @@
   "conflict": false,
   "agents": [
     {
-      "agentId": "agent-andrii",
-      "humanId": "andrii",
+      "agentId": "agent-oleg",
+      "humanId": "oleg",
       "task": "Add Washington to TAX_RATES in src/tax.ts with the rate 0.065 and add a test that applyTax(10000, \"WA\") returns 10650. You own src/tax.ts and test/tax.test.ts.",
       "owns": [
         "src/tax.ts",
@@ -23,7 +23,7 @@
     }
   ],
   "startDelaysMs": {
-    "agent-andrii": 0,
+    "agent-oleg": 0,
     "agent-masha": 3000
   },
   "expectedCulprits": [],

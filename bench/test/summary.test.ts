@@ -99,11 +99,11 @@ describe("FeedCounters.culpritCorrect", () => {
       conflicts: [],
       dependents: [],
     });
-    c.ingest(intent("A1", "agent-andrii"));
+    c.ingest(intent("A1", "agent-oleg"));
     c.ingest(intent("B1", "agent-masha"));
-    expect(c.culpritCorrect(["agent-andrii"])).toBeNull();
+    expect(c.culpritCorrect(["agent-oleg"])).toBeNull();
     c.ingest({ id: 3, ts: 0, type: "culprit_found", searchId: "x", report: { kind: "pair", culprits: ["B1", "A1"], greenRev: 0, variants: [], durationMs: 1 } });
-    expect(c.culpritCorrect(["agent-andrii", "agent-masha"])).toBe(true);
-    expect(c.culpritCorrect(["agent-andrii"])).toBe(false);
+    expect(c.culpritCorrect(["agent-oleg", "agent-masha"])).toBe(true);
+    expect(c.culpritCorrect(["agent-oleg"])).toBe(false);
   });
 });

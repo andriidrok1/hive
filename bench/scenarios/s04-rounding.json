@@ -4,8 +4,8 @@
   "conflict": true,
   "agents": [
     {
-      "agentId": "agent-andrii",
-      "humanId": "andrii",
+      "agentId": "agent-oleg",
+      "humanId": "oleg",
       "task": "Percent promos can leave fractional cents. Make calculateTotal in src/checkout.ts always return whole cents by rounding half up with Math.round. Add a test: a 25-cent item with a 50% promo totals 13 cents. You own src/checkout.ts and test/checkout.test.ts.",
       "owns": [
         "src/checkout.ts",
@@ -23,11 +23,11 @@
     }
   ],
   "startDelaysMs": {
-    "agent-andrii": 0,
+    "agent-oleg": 0,
     "agent-masha": 3000
   },
   "expectedCulprits": [
-    "agent-andrii",
+    "agent-oleg",
     "agent-masha"
   ],
   "acceptance": "npm test",

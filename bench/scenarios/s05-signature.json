@@ -4,8 +4,8 @@
   "conflict": true,
   "agents": [
     {
-      "agentId": "agent-andrii",
-      "humanId": "andrii",
+      "agentId": "agent-oleg",
+      "humanId": "oleg",
       "task": "formatPrice in src/format.ts must take a required second parameter currency: \"USD\" | \"EUR\" and prefix the amount with $ or €; throw an Error for any other value. Update every call site (src/order.ts passes \"USD\") and the tests. You own src/format.ts and test/format.test.ts; in src/order.ts change only the existing formatPrice calls.",
       "owns": [
         "src/format.ts",
@@ -24,11 +24,11 @@
     }
   ],
   "startDelaysMs": {
-    "agent-andrii": 0,
+    "agent-oleg": 0,
     "agent-masha": 3000
   },
   "expectedCulprits": [
-    "agent-andrii",
+    "agent-oleg",
     "agent-masha"
   ],
   "acceptance": "npm test",
