@@ -126,6 +126,7 @@ export class TestOrchestrator {
       }
     }
 
+    let checkFailure: TestResult | undefined;
     if (mode === "hive" && intent?.check && intent.action !== "delete" && !isTestFile(intent.target.file)) {
       const checkRun = runId("check");
       onEvent({ type: "test_run_started", runId: checkRun, rev, reason: `check ${intentId} (${where})` });
@@ -135,9 +136,9 @@ export class TestOrchestrator {
       onEvent({ type: "test_run_finished", runId: checkRun, rev, result: checkResult });
       const verdict = classifyCheck(checkResult);
       if (verdict === "failed") {
-        intents.setStatus(intentId, "failed", { rev });
-        this.briefVerificationFailed(intent, checkResult);
-        return;
+        // The agent's own check disagrees with its code; the suite decides. If the suite is green the
+        // code is accepted and the owner is told to re-check the promised output.
+        checkFailure = checkResult;
       }
       if (verdict === "invalid") {
         // The check itself could not run (ReferenceError, SyntaxError, ...): the code was not judged.
@@ -161,10 +162,25 @@ export class TestOrchestrator {
       if (mode === "hive" && where.startsWith("view")) history.saveSnapshot(true, { rev, files });
       else history.saveSnapshot(true);
       if (intent) intents.setStatus(intentId, "verified", { rev });
+      if (intent && checkFailure) {
+        this.deps.briefings.push({
+          toAgent: intent.agentId,
+          kind: "verification_failed",
+          summary: clip(`Your check for ${intentId} failed (${firstLine(checkFailure)}) but the full suite is green; code accepted. Re-check your promised output.`),
+          details: { intentId, file: intent.target.file, symbol: intent.target.symbol, failingTests: checkFailure.failures.slice(0, 3) },
+          requiresAck: false,
+        });
+      }
       return;
     }
 
     if (mode !== "hive") return; // naive / isolated: tests run, no culprit search, no briefings
+
+    if (intent && checkFailure) {
+      // Own check red and suite red: the intent failed its promise; dependents are warned, then the search runs.
+      intents.setStatus(intentId, "failed", { rev });
+      this.briefVerificationFailed(intent, checkFailure);
+    }
 
     const green = base;
     const suspects = sets;
@@ -363,6 +379,12 @@ export function checkTestSource(intent: Intent, fileContent?: string): string {
     "",
   ];
   return lines.filter((l) => l !== "").join("\n");
+}
+
+/** First non-empty line of the first failure message, e.g. `AssertionError: expected 10725 to be 10000`. */
+function firstLine(result: TestResult): string {
+  const msg = result.failures[0]?.message ?? "";
+  return msg.split("\n").map((l) => l.trim()).find((l) => l.length > 0) ?? "assertion failed";
 }
 
 /** Intents that target a test file have nothing to import from `../src/`: their check is skipped. */

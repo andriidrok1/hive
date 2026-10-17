@@ -341,7 +341,7 @@ describe("TestOrchestrator", () => {
     expect(t.events.filter((e) => e.type === "culprit_search_started").length).toBe(2);
   });
 
-  it("9. check failure -> intent failed, verification_failed to the owner and to dependents, no suite run", async () => {
+  it("9. check failed but suite green -> verified, one non-blocking note to the owner, no dependents briefed", async () => {
     const cs = harmlessFormatChange();
     const intent = intentOf(cs, {
       target: { file: "src/format.ts", symbol: "formatPrice" },
@@ -354,23 +354,49 @@ describe("TestOrchestrator", () => {
         intent,
         intentOf(breakDiscount(), { id: "C9", agentId: "agent-caller", target: { file: "src/order.ts", symbol: "orderSummary" }, status: "in_progress" }),
       ],
-      // the check run (has the temp test file) fails; anything else is green
+      // the check run (has the temp test file) fails with a real assertion; the suite is green
       isGreen: (files) => !(CHECK_TEST_PATH in files),
+      failureMessage: "AssertionError: expected '$12.34' to be '$12.35'\n    at test/__hive_check__.test.ts:5:30",
       readers: { "src/format.ts#formatPrice": ["agent-masha", "agent-andrii"] },
       callers: [{ file: "src/order.ts", line: 20, caller: "orderSummary", callee: "formatPrice" }],
     });
     await t.orchestrator.onIntentFinished("A1");
-    expect(t.calls.length).toBe(1);
-    expect(t.calls[0]!.filter).toBe("__hive_check__");
+    expect(t.calls.map((c) => c.filter)).toEqual(["__hive_check__", undefined]);
     const src = t.calls[0]!.files[CHECK_TEST_PATH]!;
     expect(src).toContain(`from "../src/format.js"`);
     expect(src).toContain(`expect(formatPrice(1234)).toBe("$12.34");`);
-    expect(t.intents.statuses).toEqual([{ id: "A1", status: "failed" }]);
-    const kinds = t.briefings.all.map((b) => `${b.kind}->${b.toAgent}`).sort();
-    expect(kinds).toEqual(["verification_failed->agent-andrii", "verification_failed->agent-caller", "verification_failed->agent-masha"]);
-    for (const b of t.briefings.all) expect(b.details.intentId).toBe("A1");
-    expect(t.events.map((e) => e.type)).toEqual(["test_run_started", "test_run_finished"]);
+    expect(t.intents.statuses).toEqual([{ id: "A1", status: "verified" }]);
+    expect(t.history.snapshots.filter((s) => s.green).length).toBe(2);
+    expect(t.briefings.all.length).toBe(1);
+    const b = t.briefings.all[0]!;
+    expect(b.toAgent).toBe("agent-andrii");
+    expect(b.kind).toBe("verification_failed");
+    expect(b.requiresAck).toBe(false);
+    expect(b.summary).toBe("Your check for A1 failed (AssertionError: expected '$12.34' to be '$12.35') but the full suite is green; code accepted. Re-check your promised output.");
+    expect(b.details.intentId).toBe("A1");
+    expect(t.events.map((e) => e.type)).toEqual(["test_run_started", "test_run_finished", "test_run_started", "test_run_finished"]);
     expect((t.events[0] as Extract<FeedEventBody, { type: "test_run_started" }>).reason).toContain("check");
+  });
+
+  it("9g. check failed and suite red -> failed, verification_failed to owner and dependents, culprit search runs", async () => {
+    const cs = harmlessFormatChange();
+    const t = setup({
+      files: applyAll(DEMO_APP_FILES, [cs]),
+      changeSets: [cs],
+      intents: [
+        intentOf(cs, { target: { file: "src/format.ts", symbol: "formatPrice" }, check: `expect(formatPrice(0)).toBe("$0.00");` }),
+        intentOf(breakDiscount(), { id: "C9", agentId: "agent-caller", target: { file: "src/order.ts", symbol: "orderSummary" }, status: "in_progress" }),
+      ],
+      isGreen: () => false,
+      readers: { "src/format.ts#formatPrice": ["agent-masha"] },
+      callers: [{ file: "src/order.ts", line: 20, caller: "orderSummary", callee: "formatPrice" }],
+    });
+    await t.orchestrator.onIntentFinished("A1");
+    expect(t.calls.slice(0, 2).map((c) => c.filter)).toEqual(["__hive_check__", undefined]); // then the search's variants
+    expect(t.intents.statuses).toEqual([{ id: "A1", status: "failed" }]); // set once, not again by the search
+    const kinds = t.briefings.all.map((b) => `${b.kind}->${b.toAgent}`).sort();
+    expect(kinds.slice(0, 3)).toEqual(["verification_failed->agent-andrii", "verification_failed->agent-caller", "verification_failed->agent-masha"]);
+    expect(t.events.some((e) => e.type === "culprit_search_started")).toBe(true);
     expect(t.history.snapshots.filter((s) => s.green).length).toBe(1);
   });
 
