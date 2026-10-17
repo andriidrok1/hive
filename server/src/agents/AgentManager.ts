@@ -19,6 +19,7 @@ export interface AgentRunOptions {
   model?: string;
   maxToolCalls?: number;
   maxMs?: number;
+  maxTokens?: number;
   signal?: AbortSignal;
   interrupt?: { current(): AbortSignal };
   onEvent?: (e: { type: "llm_call" | "tool_call" | "status"; [k: string]: unknown }) => void;
@@ -49,9 +50,10 @@ export interface AgentManagerOptions {
   briefings: () => BriefingQueueLike;
   mode: () => HiveMode;
   model?: string;
-  /** Budget per run; defaults 60 calls / 10 min, env HIVE_AGENT_MAX_TOOL_CALLS / HIVE_AGENT_MAX_MS override. */
+  /** Budget per run; defaults 60 calls / 10 min / 600k tokens, env HIVE_AGENT_MAX_TOOL_CALLS / HIVE_AGENT_MAX_MS / HIVE_AGENT_MAX_TOKENS override. */
   maxToolCalls?: number;
   maxMs?: number;
+  maxTokens?: number;
   /** Runs when a run reaches a terminal status, before agent_status is emitted (closes open intents). */
   onTerminal?: (agentId: AgentId, status: AgentStatus) => void;
 }
@@ -59,6 +61,7 @@ export interface AgentManagerOptions {
 export const AGENT_COLORS = ["#7c5cff", "#3b82f6", "#22c55e", "#f59e0b", "#ec4899"] as const;
 export const DEFAULT_MAX_TOOL_CALLS = 60;
 export const DEFAULT_MAX_MS = 10 * 60_000;
+export const DEFAULT_MAX_TOKENS = 600_000;
 
 function envNumber(name: string): number | undefined {
   const raw = process.env[name];
@@ -72,11 +75,13 @@ export class AgentManager implements AgentManagerLike {
   private readonly running = new Map<AgentId, Running>();
   readonly maxToolCalls: number;
   readonly maxMs: number;
+  readonly maxTokens: number;
   private colorSeq = 0;
 
   constructor(private readonly opts: AgentManagerOptions) {
     this.maxToolCalls = opts.maxToolCalls ?? envNumber("HIVE_AGENT_MAX_TOOL_CALLS") ?? DEFAULT_MAX_TOOL_CALLS;
     this.maxMs = opts.maxMs ?? envNumber("HIVE_AGENT_MAX_MS") ?? DEFAULT_MAX_MS;
+    this.maxTokens = opts.maxTokens ?? envNumber("HIVE_AGENT_MAX_TOKENS") ?? DEFAULT_MAX_TOKENS;
   }
 
   register(agentId: AgentId, humanId: HumanId, owns?: string[]): AgentRecord {
@@ -132,6 +137,7 @@ export class AgentManager implements AgentManagerLike {
       client,
       maxToolCalls: this.maxToolCalls,
       maxMs: this.maxMs,
+      maxTokens: this.maxTokens,
       signal: run.stop.signal,
       interrupt: { current: () => this.running.get(input.agentId)?.interrupt.signal ?? new AbortController().signal },
       mode: this.opts.mode(),
