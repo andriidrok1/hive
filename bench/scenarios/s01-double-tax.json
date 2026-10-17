@@ -1,0 +1,22 @@
+{
+  "id": "s01-double-tax",
+  "title": "Tax added twice",
+  "conflict": true,
+  "agents": [
+    {
+      "agentId": "agent-andrii",
+      "humanId": "andrii",
+      "task": "Make calculateTotal in src/checkout.ts return the final price the customer pays, including state sales tax (use applyTax from src/tax.ts). Add a state parameter that defaults to \"CA\" so existing callers get the taxed price. Update the existing tests so they match the new behavior and add a test for a non-default state."
+    },
+    {
+      "agentId": "agent-masha",
+      "humanId": "masha",
+      "task": "Add a state parameter to orderSummary in src/order.ts and show tax as its own line in the receipt: compute total = calculateTotal(items, promo), tax = applyTax(total, state) - total, add a line \"Tax $x.xx\" before the Total line, and make the returned total and the Total line include tax. Add tests."
+    }
+  ],
+  "startDelaysMs": { "agent-andrii": 0, "agent-masha": 20000 },
+  "expectedCulprits": ["agent-andrii", "agent-masha"],
+  "acceptance": "npm test",
+  "extraTests": "test/s01.accept.test.ts",
+  "notes": "Each task alone keeps its suite green. Together orderSummary taxes a total that calculateTotal already taxed. Correct merge: orderSummary gets the pre-tax amount from applyDiscount(subtotal) and the taxed total from calculateTotal(items, promo, state)."
+}
