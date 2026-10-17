@@ -95,8 +95,10 @@ class History {
   lastGreen(): Snapshot | undefined
   changeSetsSince(rev: Rev): ChangeSet[]
 }
-// Applies each patch in order with diff.applyPatch(text, patch, { fuzzFactor: 2 }): a later patch's context
-// may include neighbouring edits by other intents, so exact-context matching would fail on adjacent edits.
+// Applies each patch in order with diff.applyPatch(text, patch, { fuzzFactor: 2 }); if that fails (jsdiff rejects a
+// mismatched context line directly next to an insertion regardless of fuzz) it retries the hunks with outer context
+// trimmed to 1 and then 0 lines. So `applyError` is rare and means a real dependency between change sets.
+// Also exported: applyOnePatch(text, patch). Implemented in server/src/core (merged to main 12:30).
 function applyEdits(files: Record<string, string>, edits: ChangeSet["edits"]): { ok: true; files: Record<string, string> } | { ok: false; path: string; index: number }
 ```
 
