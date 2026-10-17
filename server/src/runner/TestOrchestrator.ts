@@ -14,7 +14,7 @@ import type {
   Snapshot,
   TestResult,
 } from "@hive/shared";
-import { applyEdits } from "../core/index.js";
+import { buildView } from "../core/index.js";
 import type { CulpritFinder } from "./CulpritFinder.js";
 import { runId } from "./util.js";
 
@@ -25,18 +25,13 @@ export interface StoreLike {
   allFiles(): Record<string, string>;
   onChange(cb: (c: { path: string; rev: Rev }) => void): () => void;
 }
-/** Files of a green base plus a set of finished change sets; mirrors core's applyEdits result shape. */
-export type ViewResult = { ok: true; files: Record<string, string> } | { ok: false; path: string; index: number; intentId?: IntentId };
-
 export interface HistoryLike {
   /** `view` pins the snapshot to the tested view (rev + files) instead of the live store. */
   saveSnapshot(green: boolean, view?: { rev: Rev; files: Record<string, string> }): Snapshot;
   lastGreen(): Snapshot | undefined;
   changeSetsSince(rev: Rev): ChangeSet[];
-  /** Intents that began but have not finished (their edits are excluded from views). Optional until core lands it. */
-  openIntents?(): ReadonlyArray<IntentId | { id: IntentId }>;
-  /** Base files plus the given finished change sets. Optional until core lands it (local applyEdits is used meanwhile). */
-  buildView?(base: Record<string, string>, sets: ChangeSet[], extraEdits?: ChangeSet["edits"]): ViewResult;
+  /** Intents begun and not finished (their edits are excluded from views). */
+  openIntents(agentId?: AgentId): { intentId: IntentId; agentId: AgentId; files: string[] }[];
 }
 export interface IntentsLike {
   get(id: IntentId): Intent | undefined;
@@ -114,16 +109,16 @@ export class TestOrchestrator {
       files = store.allFiles(); // no intents, no change sets: the live project is the only view
       where = "live";
     } else {
-      const view = history.buildView ? history.buildView(base.files, sets) : applyEdits(base.files, sets.flatMap((s) => s.edits));
+      const view = buildView(base.files, sets);
       if (view.ok) {
         files = view.files;
         rev = intent?.endRev ?? sets[sets.length - 1]?.endRev ?? store.rev;
-        const excluded = (history.openIntents?.() ?? []).map((o) => (typeof o === "string" ? o : o.id)).filter((id) => id !== intentId);
+        const excluded = history.openIntents().map((o) => o.intentId).filter((id) => id !== intentId);
         where = `view: ${sets.length} finished set${sets.length === 1 ? "" : "s"}, excluded in-progress: ${excluded.length > 0 ? excluded.join(", ") : "none"}`;
       } else {
         files = store.allFiles();
-        const failedId = "intentId" in view && view.intentId ? ` of ${view.intentId}` : "";
-        where = `fallback: live, view failed at ${view.path}#${view.index}${failedId}`;
+        const { failedAt } = view;
+        where = `fallback: live, view failed at ${failedAt.path}#${failedAt.index}${failedAt.intentId ? ` of ${failedAt.intentId}` : ""}`;
       }
     }
 
