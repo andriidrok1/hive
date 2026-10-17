@@ -1,9 +1,9 @@
 import type { Briefing, ChangeSet, FeedEventBody, Intent, IntentStatus, Rev, Runner, Snapshot, TestResult } from "@hive/shared";
 import { describe, expect, it } from "vitest";
-import { History, ProjectStore, ReadLog } from "../../src/core/index.js";
+import { applyEdits, History, ProjectStore, ReadLog } from "../../src/core/index.js";
 import { BriefingQueue, CallGraph, IntentRegistry } from "../../src/coord/index.js";
 import { CulpritFinder } from "../../src/runner/CulpritFinder.js";
-import { checkTestSource, CHECK_TEST_PATH, classifyCheck, exportedValueNames, TestOrchestrator, type TestOrchestratorDeps } from "../../src/runner/TestOrchestrator.js";
+import { checkTestSource, CHECK_TEST_PATH, classifyCheck, exportedValueNames, TestOrchestrator, type TestOrchestratorDeps, type ViewResult } from "../../src/runner/TestOrchestrator.js";
 import { LocalRunner } from "../../src/runner/LocalRunner.js";
 import { applyAll, breakDiscount, harmlessFormatChange, taxInCalculateTotal, taxLineInOrderSummary } from "./fixtures/changeSets.js";
 import { DEMO_APP_FILES } from "./fixtures/demoApp.js";
@@ -36,18 +36,29 @@ function fakeStore(files: Record<string, string>, rev = 0) {
   };
 }
 
-function fakeHistory(store: ReturnType<typeof fakeStore>, changeSets: ChangeSet[], green?: Snapshot) {
+function fakeHistory(store: ReturnType<typeof fakeStore>, changeSets: ChangeSet[], green?: Snapshot, opts: { open?: string[]; viewFails?: boolean; withView?: boolean } = {}) {
   const snapshots: Snapshot[] = green ? [green] : [];
-  return {
+  const h = {
     snapshots,
-    saveSnapshot(isGreen: boolean): Snapshot {
-      const s: Snapshot = { rev: store.rev, files: store.allFiles(), green: isGreen, at: Date.now() };
+    saveCalls: [] as { green: boolean; view?: { rev: Rev; files: Record<string, string> } }[],
+    saveSnapshot(isGreen: boolean, view?: { rev: Rev; files: Record<string, string> }): Snapshot {
+      h.saveCalls.push({ green: isGreen, view });
+      const s: Snapshot = view ? { rev: view.rev, files: { ...view.files }, green: isGreen, at: Date.now() } : { rev: store.rev, files: store.allFiles(), green: isGreen, at: Date.now() };
       snapshots.push(s);
       return s;
     },
     lastGreen: () => [...snapshots].reverse().find((s) => s.green),
     changeSetsSince: (rev: Rev) => changeSets.filter((c) => c.endRev > rev).sort((a, b) => a.endRev - b.endRev),
+    openIntents: () => opts.open ?? [],
+    buildView: undefined as undefined | ((base: Record<string, string>, sets: ChangeSet[]) => ViewResult),
   };
+  if (opts.withView !== false) {
+    h.buildView = (base, sets) => {
+      if (opts.viewFails) return { ok: false, path: "src/checkout.ts", index: 0, intentId: sets[0]?.id };
+      return applyEdits(base, sets.flatMap((s) => s.edits));
+    };
+  }
+  return h;
 }
 
 function fakeIntents(list: Intent[]) {
@@ -123,10 +134,13 @@ function setup(opts: {
   failureMessage?: string;
   failure?: { name: string };
   culpritCooldownMs?: number;
+  open?: string[];
+  viewFails?: boolean;
+  withView?: boolean;
 }) {
   const store = fakeStore(opts.files, 10);
   const green: Snapshot = { rev: 0, files: { ...DEMO_APP_FILES }, green: true, at: 0 };
-  const history = fakeHistory(store, opts.changeSets, green);
+  const history = fakeHistory(store, opts.changeSets, green, { open: opts.open, viewFails: opts.viewFails, withView: opts.withView });
   const intents = fakeIntents(opts.intents);
   const briefings = fakeBriefings();
   const events: FeedEventBody[] = [];
@@ -167,13 +181,65 @@ describe("TestOrchestrator", () => {
     expect(t.intents.statuses).toEqual([{ id: "A1", status: "verified" }]);
     const greens = t.history.snapshots.filter((s) => s.green);
     expect(greens.length).toBe(2);
-    expect(greens[1]!.rev).toBe(t.store.rev);
+    expect(greens[1]!.rev).toBe(cs.endRev); // pinned to the verified view, not the live store rev
+    expect(t.history.saveCalls[0]!.view?.files).toEqual(applyAll(DEMO_APP_FILES, [cs]));
     const types = t.events.map((e) => e.type);
     expect(types).toEqual(["test_run_started", "test_run_finished"]);
     const finished = t.events[1] as Extract<FeedEventBody, { type: "test_run_finished" }>;
     expect(finished.result.ok).toBe(true);
-    expect((t.events[0] as Extract<FeedEventBody, { type: "test_run_started" }>).reason).toContain("A1");
+    expect((t.events[0] as Extract<FeedEventBody, { type: "test_run_started" }>).reason).toBe("intent A1 finished (view: 1 finished set, excluded in-progress: none)");
     expect(t.briefings.all).toEqual([]);
+  });
+
+  it("8g. view: a finished intent is green on its view although another agent's in-progress edit breaks the live store", async () => {
+    const a1 = harmlessFormatChange();
+    const live = applyAll(DEMO_APP_FILES, [a1, breakDiscount()]); // masha's M1 is in progress: broken discount is in the live store
+    const t = setup({
+      files: live,
+      changeSets: [a1],
+      intents: [intentOf(a1)],
+      isGreen: (files) => !files["src/discount.ts"]!.includes("Math.floor"),
+      open: ["M1", "A1"],
+    });
+    await t.orchestrator.onIntentFinished("A1");
+    expect(t.calls.length).toBe(1);
+    expect(t.calls[0]!.files["src/discount.ts"]).toBe(DEMO_APP_FILES["src/discount.ts"]); // M1's edit excluded
+    expect(t.calls[0]!.files["src/format.ts"]).toBe(applyAll(DEMO_APP_FILES, [a1])["src/format.ts"]); // A1 included
+    expect(t.intents.statuses).toEqual([{ id: "A1", status: "verified" }]);
+    const started = t.events[0] as Extract<FeedEventBody, { type: "test_run_started" }>;
+    expect(started.reason).toBe("intent A1 finished (view: 1 finished set, excluded in-progress: M1)");
+    expect(started.rev).toBe(a1.endRev);
+    expect(t.history.saveCalls).toEqual([{ green: true, view: { rev: a1.endRev, files: applyAll(DEMO_APP_FILES, [a1]) } }]);
+    expect(t.history.lastGreen()!.files["src/discount.ts"]).toBe(DEMO_APP_FILES["src/discount.ts"]);
+    expect(t.events.filter((e) => e.type === "culprit_search_started")).toEqual([]);
+  });
+
+  it("8h. view fallback: when buildView fails the live files are tested and the reason says so", async () => {
+    const a1 = harmlessFormatChange();
+    const live = applyAll(DEMO_APP_FILES, [a1, breakDiscount()]);
+    const t = setup({
+      files: live,
+      changeSets: [a1],
+      intents: [intentOf(a1)],
+      isGreen: (files) => !files["src/discount.ts"]!.includes("Math.floor"),
+      open: ["M1"],
+      viewFails: true,
+    });
+    await t.orchestrator.onIntentFinished("A1");
+    expect(t.calls[0]!.files).toEqual(live);
+    const started = t.events[0] as Extract<FeedEventBody, { type: "test_run_started" }>;
+    expect(started.reason).toBe("intent A1 finished (fallback: live, view failed at src/checkout.ts#0 of A1)");
+    expect(started.rev).toBe(t.store.rev);
+    // live is red: a search over the finished sets runs against the green base
+    expect(t.events.some((e) => e.type === "culprit_search_started")).toBe(true);
+  });
+
+  it("8i. without buildView on history the local applyEdits view is used", async () => {
+    const a1 = harmlessFormatChange();
+    const t = setup({ files: applyAll(DEMO_APP_FILES, [a1, breakDiscount()]), changeSets: [a1], intents: [intentOf(a1)], isGreen: (files) => !files["src/discount.ts"]!.includes("Math.floor"), withView: false });
+    await t.orchestrator.onIntentFinished("A1");
+    expect(t.intents.statuses).toEqual([{ id: "A1", status: "verified" }]);
+    expect(t.calls[0]!.files["src/discount.ts"]).toBe(DEMO_APP_FILES["src/discount.ts"]);
   });
 
   it("8b. red path, single culprit: culprit events, failed status, briefing to the culprit's owner only", async () => {
