@@ -114,26 +114,33 @@ export function App({ mockStepMs }: { mockStepMs?: number } = {}) {
                   )}
                   {pending > 0 && <Badge variant="warning">{pending} unacked</Badge>}
                 </TabsTrigger>
-                <Button variant="outline" size="sm" className="ml-auto" onClick={() => setDialog(true)}>
-                  <Plus />
-                  New agent
-                </Button>
-                <Button
-                  variant="outline"
-                  size="icon"
-                  className="ml-1.5 size-7 shrink-0"
-                  title="Spawn demo agents: agent-alex now, agent-nika 3 s later"
-                  aria-label="Spawn demo agents"
-                  onClick={() => void spawnDemoAgents()}
-                >
+                {/* Labelled primary action first; "New agent" is the compact "+" (also reachable from the empty state and the chat box). */}
+                <Button size="sm" className="ml-auto shrink-0" title="Starts agent-alex now and agent-nika 3 s later" onClick={() => void spawnDemoAgents()}>
                   <Users />
+                  Spawn demo agents
+                </Button>
+                <Button variant="outline" size="icon" className="ml-1.5 size-7 shrink-0" title="New agent" aria-label="New agent" onClick={() => setDialog(true)}>
+                  <Plus />
                 </Button>
               </TabsList>
 
               <TabsContent value="agents" className="grid min-h-0 min-w-0 grid-rows-[minmax(0,1fr)_auto]">
                 <ScrollArea className="h-full">
                   <div className="flex flex-col gap-2 p-3" aria-label="agents">
-                    {state.agents.length === 0 && <div className="px-1 py-3 text-xs text-muted-foreground">No agents yet. Start one with New agent, or open ?mock=1 for the scripted demo.</div>}
+                    {state.agents.length === 0 && (
+                      <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-border px-4 py-8 text-center" data-testid="empty-agents">
+                        <div className="text-[13px] text-muted-foreground">No agents yet.</div>
+                        <Button size="lg" onClick={() => void spawnDemoAgents()}>
+                          <Users />
+                          Spawn demo agents
+                        </Button>
+                        <div className="text-xs text-muted-foreground">Starts Alex (order.ts) and Nika (format.ts)</div>
+                        <Button variant="outline" size="sm" onClick={() => setDialog(true)}>
+                          <Plus />
+                          New agent
+                        </Button>
+                      </div>
+                    )}
                     {state.agents.map((a) => (
                       <AgentCard
                         key={a.agentId}
