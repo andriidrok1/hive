@@ -1,40 +1,44 @@
 import { FlaskConical, ShieldAlert } from "lucide-react";
-import type { CulpritVariant } from "@hive/shared";
+import type { CulpritReport, CulpritVariant } from "@hive/shared";
 import { describeReport } from "../format";
 import type { CulpritGrid, TestsState } from "../state";
 import { ScrollArea } from "./ui/scroll-area";
 import { cn } from "../lib/utils";
 
-export function CulpritTab({ grid, tests }: { grid?: CulpritGrid; tests: TestsState }) {
+interface Props {
+  grid?: CulpritGrid; // current search: only its own labels are shown
+  tests: TestsState;
+  lastReport?: { searchId: string; report: CulpritReport; at: number }; // stays up until the next report
+}
+
+export function CulpritTab({ grid, tests, lastReport }: Props) {
+  const running = Boolean(grid && !grid.report);
   return (
     <ScrollArea className="h-full">
       <div className="flex flex-col gap-3 p-3">
         <TestLine tests={tests} />
+        {lastReport && <ReportBanner report={lastReport.report} searchId={lastReport.searchId} stale={running} />}
         {!grid ? (
           <div className="px-1 py-3 text-xs text-muted-foreground">No culprit search yet. When tests go red after an intent finishes, Hive runs the suite with and without each change set in parallel.</div>
         ) : (
           <>
             <div className="flex items-center gap-2 px-1 text-[13px]">
               <ShieldAlert className="size-3.5 text-muted-foreground" />
-              <span className="font-medium">Culprit search</span>
+              <span className="font-medium">{running ? "Culprit search running" : "Culprit search"}</span>
               <span className="font-mono text-xs text-muted-foreground">
                 {grid.searchId} · suspects {grid.suspects.join(", ") || "–"}
               </span>
             </div>
-            <div className="grid grid-cols-[repeat(auto-fill,minmax(132px,1fr))] gap-2" aria-label="culprit grid">
-              {labelsFor(grid).map((label) => (
-                <VariantCard key={label} label={label} v={grid.variants[label]} />
-              ))}
-            </div>
-            {grid.report && (
-              <div className={cn("rounded-md border px-3 py-2.5 text-sm leading-snug", grid.report.kind === "unknown" ? "border-border" : "border-red-500/60 bg-red-500/5")} role="status">
-                <span className="font-medium text-red-300">
-                  {grid.report.kind === "pair" ? "Pair conflict" : grid.report.kind === "single" ? "Single culprit" : grid.report.kind === "dependent" ? "Dependent pair" : "No single culprit"}
-                </span>
-                <span className="text-foreground"> · {describeReport(grid.report)}</span>
-                <div className="mt-1 font-mono text-[11px] text-muted-foreground">
-                  {grid.report.variants.length} variants in {(grid.report.durationMs / 1000).toFixed(1)} s · green baseline rev {grid.report.greenRev}
-                </div>
+            {grid.order.length === 0 ? (
+              <div className="flex items-center gap-2 rounded-md border border-dashed border-zinc-700 px-3 py-3 font-mono text-xs text-muted-foreground">
+                <FlaskConical className="size-3.5 animate-pulse" />
+                starting {Math.max(1, grid.suspects.length * 2)} variants in parallel…
+              </div>
+            ) : (
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(132px,1fr))] gap-2" aria-label="culprit grid">
+                {grid.order.map((label) => (
+                  <VariantCard key={label} label={label} v={grid.variants[label]} />
+                ))}
               </div>
             )}
           </>
@@ -44,13 +48,19 @@ export function CulpritTab({ grid, tests }: { grid?: CulpritGrid; tests: TestsSt
   );
 }
 
-// Expected labels first (green+X, all-X per suspect), then anything else the server sent.
-function labelsFor(grid: CulpritGrid): string[] {
-  const expected: string[] = [];
-  for (const s of grid.suspects) expected.push(`green+${s}`);
-  for (const s of grid.suspects) expected.push(`all-${s}`);
-  const extra = grid.order.filter((l) => !expected.includes(l));
-  return [...expected, ...extra];
+function ReportBanner({ report, searchId, stale }: { report: CulpritReport; searchId: string; stale: boolean }) {
+  return (
+    <div className={cn("rounded-md border px-3 py-2.5 text-sm leading-snug", report.kind === "unknown" ? "border-border" : "border-red-500/60 bg-red-500/5", stale && "opacity-70")} role="status">
+      <span className="font-medium text-red-300">
+        {report.kind === "pair" ? "Pair conflict" : report.kind === "single" ? "Single culprit" : report.kind === "dependent" ? "Dependent pair" : "No single culprit"}
+      </span>
+      <span className="text-foreground"> · {describeReport(report)}</span>
+      <div className="mt-1 font-mono text-[11px] text-muted-foreground">
+        {searchId} · {report.variants.length} variants in {(report.durationMs / 1000).toFixed(1)} s · green baseline rev {report.greenRev}
+        {stale ? " · previous search" : ""}
+      </div>
+    </div>
+  );
 }
 
 // The plain "ok" / "red" / "pending" / "apply" tokens stay in className: tests assert on them.

@@ -14,41 +14,56 @@ describe("App in ?mock=1 mode", () => {
     vi.unstubAllGlobals();
   });
 
-  it("plays the scripted story and shows the culprit banner without a server", async () => {
+  it("plays the scripted story without a server; the right column never switches on its own", async () => {
     render(<App />);
     expect(screen.getByText(/No agents yet/)).toBeTruthy();
-    expect(screen.getByText("mock")).toBeTruthy();
+    expect(screen.getByText("mock")).toBeTruthy(); // connection state next to the Live dot
+    expect(screen.getByTestId("mode-pill").textContent).toBe("hive");
+    // No header counters anywhere on the main page.
+    expect(screen.queryByText("conflicts before code")).toBeNull();
+    expect(screen.queryByText("plan changes")).toBeNull();
     // Project tree lists the mock files grouped by folder.
     expect(screen.getByTestId("file-src/checkout.ts")).toBeTruthy();
     expect(screen.getByTestId("file-package.json")).toBeTruthy();
 
-    // A few events in: both agents have cards; the Activity tab shows feed lines.
+    // A few events in: both agents have cards; the Agents tab is selected.
     await act(async () => {
       vi.advanceTimersByTime(MOCK_STEP_MS * 3);
     });
     expect(screen.getByTestId("card-agent-andrii")).toBeTruthy();
     expect(screen.getByTestId("card-agent-masha")).toBeTruthy();
-    fireEvent.click(screen.getByRole("tab", { name: /Activity/ }));
-    expect(screen.getByLabelText("feed").children.length).toBeGreaterThan(0);
+    const agentsTab = screen.getByRole("tab", { name: /^Agents/ });
+    expect(agentsTab.getAttribute("aria-selected")).toBe("true");
 
-    // Whole story: culprit sub-tab auto-opens, grid turns, banner names the pair.
+    // Up to the culprit search start: still on Agents, red alert badge on Activity, running notice under the tiles.
+    const searchIdx = MOCK_EVENTS.findIndex((e) => e.type === "culprit_search_started");
+    await act(async () => {
+      vi.advanceTimersByTime(MOCK_STEP_MS * (searchIdx + 1 - 3));
+    });
+    expect(screen.getByRole("tab", { name: /^Agents/ }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByTestId("activity-alerts").textContent).toBe("1");
+    expect(screen.getByTestId("culprit-notice").textContent).toContain("Culprit search running");
+
+    // Whole story: still on Agents; the notice names the culprits; tiles show tests passed.
     await act(async () => {
       vi.advanceTimersByTime(MOCK_STEP_MS * (MOCK_EVENTS.length + 2));
     });
-    expect(screen.getByRole("status").textContent).toContain("A1 alone ok, M2 alone ok, together red: conflict between A1 and M2");
-    expect(screen.getByTestId("variant-green+A1").className).toContain("ok");
-    expect(screen.getByTestId("variant-all").className).toContain("red");
-
-    // Counters in the header reflect the story: 1 contradiction caught, 4 plan changes, 1 search.
-    expect(screen.getByText("conflicts before code").previousElementSibling?.textContent).toBe("1");
-    expect(screen.getByText("plan changes").previousElementSibling?.textContent).toBe("4");
-    expect(screen.getByText("culprit searches").previousElementSibling?.textContent).toBe("1");
+    expect(screen.getByRole("tab", { name: /^Agents/ }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByTestId("culprit-notice").textContent).toBe("Culprit: andrii's A1 + masha's M2 together");
+    expect(screen.getByTestId("tests-tile").textContent).toContain("6");
 
     // Mock editor shows the file with intent labels on the target symbol.
     expect(screen.getByTestId("mock-editor").textContent).toContain("calculateTotal");
     expect(screen.getByTestId("mock-editor").textContent).toContain("agent-andrii: add a shipping fee");
 
-    // Contracts and History sub-tabs still list the story; file tree footer counts changed files.
+    // The user opens Activity: feed, culprit grid + banner, contracts, history are all there.
+    fireEvent.click(screen.getByRole("tab", { name: /^Activity/ }));
+    expect(screen.getByLabelText("feed").children.length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("tab", { name: /Culprit/ }));
+    expect(screen.getByRole("status").textContent).toContain("A1 alone ok, M2 alone ok, together red: conflict between A1 and M2");
+    expect(screen.getByTestId("variant-green+A1").className).toContain("ok");
+    expect(screen.getByTestId("variant-all").className).toContain("red");
+    expect(screen.getAllByTestId(/^variant-/)).toHaveLength(5); // only this search's labels
     fireEvent.click(screen.getByRole("tab", { name: /Contracts/ }));
     expect(screen.getByTestId("contract-M1")).toBeTruthy();
     expect(screen.getByTestId("contract-M3")).toBeTruthy();
@@ -58,6 +73,11 @@ describe("App in ?mock=1 mode", () => {
 
     // Clicking a file in the tree switches the editor.
     fireEvent.click(screen.getByTestId("file-test/checkout.test.ts"));
-    expect(screen.getByTestId("mock-editor").textContent).toContain("describe(\"checkout\"");
+    expect(screen.getByTestId("mock-editor").textContent).toContain('describe("checkout"');
+
+    // The avatar popover holds the "you" field and the phone QR link.
+    fireEvent.click(screen.getByLabelText("You"));
+    expect((screen.getByLabelText("your human id") as HTMLInputElement).value).toBe("andrii");
+    expect(screen.getByLabelText("QR code for the phone page")).toBeTruthy();
   });
 });

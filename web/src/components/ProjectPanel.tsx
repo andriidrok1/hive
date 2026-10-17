@@ -1,5 +1,5 @@
 import { ChevronDown, Cloud, FolderOpen, GitBranch, MoreHorizontal } from "lucide-react";
-import type { FileInfo, Intent, IntentStatus } from "@hive/shared";
+import type { FileInfo, HiveMode, Intent, IntentStatus } from "@hive/shared";
 import { agentColor } from "../state";
 import { ScrollArea } from "./ui/scroll-area";
 import { cn } from "../lib/utils";
@@ -11,6 +11,7 @@ interface Props {
   intents: Intent[];
   selected: string | null;
   onSelect: (path: string) => void;
+  mode?: HiveMode;
 }
 
 interface Group {
@@ -52,11 +53,18 @@ function ext(path: string): string {
   return e.slice(0, 2).toUpperCase() || "·";
 }
 
-export function ProjectPanel({ files, intents, selected, onSelect }: Props) {
+export function ProjectPanel({ files, intents, selected, onSelect, mode = "hive" }: Props) {
   const groups = groupFiles(files);
   const changed = files.filter((f) => f.rev > 0).length;
   return (
-    <section className="grid min-h-0 grid-rows-[44px_1fr_40px] border-r border-border bg-panel" aria-label="project">
+    <section className="grid min-h-0 grid-rows-[56px_40px_1fr_40px] border-r border-border bg-panel" aria-label="project">
+      {/* Header row, level with the rail logo: wordmark + tiny mode pill. */}
+      <div className="flex items-center gap-2 border-b border-border px-4">
+        <span className="text-[19px] font-semibold tracking-tight">Hive</span>
+        <span className="rounded-full border border-border px-1.5 font-mono text-[10px] uppercase leading-4 tracking-wide text-muted-foreground" data-testid="mode-pill">
+          {mode}
+        </span>
+      </div>
       <div className="flex items-center gap-1 px-4 text-[13px] font-medium">
         Project
         <ChevronDown className="size-3.5 text-muted-foreground" />

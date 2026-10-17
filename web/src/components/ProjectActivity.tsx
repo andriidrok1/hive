@@ -1,4 +1,5 @@
-import { ChevronLeft } from "lucide-react";
+import { ChevronLeft, FlaskConical } from "lucide-react";
+import { describeReport } from "../format";
 import type { FeedEvent } from "@hive/shared";
 import { formatEvent } from "../format";
 import { agentColor, type UiState } from "../state";
@@ -73,7 +74,28 @@ function describe(e: FeedEvent, human: (id: string) => string, owner: (intentId:
   }
 }
 
-export function ProjectActivity({ state, now, onShowAll }: { state: UiState; now: number; onShowAll: () => void }) {
+// One line under the tiles while a culprit search runs, then who it found.
+export function culpritNotice(state: UiState): { text: string; tone: "running" | "found" | "unknown" } | null {
+  const g = state.culprit;
+  if (!g) return null;
+  if (!g.report) {
+    const expected = Math.max(g.order.length, g.suspects.length * 2);
+    return { text: `Culprit search running: ${g.order.length}/${expected} variants…`, tone: "running" };
+  }
+  const human = (intentId: string) => {
+    const i = state.intents.find((x) => x.id === intentId);
+    return i ? (state.agents.find((a) => a.agentId === i.agentId)?.humanId ?? i.humanId) : null;
+  };
+  const owned = g.report.culprits.map((c) => {
+    const h = human(c);
+    return h ? `${h}'s ${c}` : c;
+  });
+  if (g.report.kind === "unknown" || owned.length === 0) return { text: `Culprit: none found (${describeReport(g.report)})`, tone: "unknown" };
+  return { text: `Culprit: ${owned.join(" + ")}${g.report.kind === "pair" ? " together" : ""}`, tone: "found" };
+}
+
+export function ProjectActivity({ state, now, onShowAll, onOpenCulprit }: { state: UiState; now: number; onShowAll: () => void; onOpenCulprit?: () => void }) {
+  const notice = culpritNotice(state);
   const working = state.agents.filter((a) => a.status === "thinking" || a.status === "tool").length;
   const idle = state.agents.filter((a) => a.status === "idle" || a.status === "paused").length + state.intents.filter((i) => i.status === "conflict").length;
   const last = state.tests.last?.result;
@@ -84,9 +106,10 @@ export function ProjectActivity({ state, now, onShowAll }: { state: UiState; now
       <div className="flex items-center gap-1 px-1 text-[14px] font-semibold">
         <ChevronLeft className="size-3.5 text-muted-foreground" />
         Project activity
-        <span className="ml-auto inline-flex items-center gap-1.5 rounded-full border border-border bg-background px-2 py-0.5 text-[11px] font-medium text-emerald-400">
-          <span className={cn("size-1.5 rounded-full bg-emerald-400", state.connection !== "connecting" && "animate-pulse")} />
-          Live
+        <span className="ml-auto inline-flex items-center gap-1.5 rounded-full border border-border bg-background px-2 py-0.5 text-[11px] font-medium">
+          <span className={cn("size-1.5 rounded-full", state.connection === "open" || state.connection === "mock" ? "bg-emerald-400" : state.connection === "reconnecting" ? "bg-amber-400" : "bg-zinc-500", state.connection !== "connecting" && "animate-pulse")} />
+          <span className="text-emerald-400">Live</span>
+          <span className="font-mono text-muted-foreground">{state.connection}</span>
         </span>
       </div>
       <div className="grid grid-cols-3 gap-2">
@@ -107,6 +130,20 @@ export function ProjectActivity({ state, now, onShowAll }: { state: UiState; now
           testId="tests-tile"
         />
       </div>
+      {notice && (
+        <button
+          type="button"
+          onClick={onOpenCulprit}
+          className={cn(
+            "flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-left text-xs transition-colors hover:bg-accent/60",
+            notice.tone === "running" ? "border-amber-500/50 text-amber-300" : notice.tone === "found" ? "border-red-500/60 text-red-300" : "border-border text-muted-foreground",
+          )}
+          data-testid="culprit-notice"
+        >
+          <FlaskConical className={cn("size-3.5 shrink-0", notice.tone === "running" && "animate-pulse")} />
+          <span className="truncate">{notice.text}</span>
+        </button>
+      )}
       <div className="flex items-center px-1 text-[13px] font-medium">
         <ChevronLeft className="size-3.5 text-muted-foreground" />
         Recent activity

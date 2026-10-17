@@ -57,7 +57,8 @@ export interface UiState extends HiveState {
   messages: AgentMessage[];
   actions: Record<AgentId, string[]>; // last 3 actions per agent, newest first
   tests: TestsState;
-  culprit?: CulpritGrid;
+  culprit?: CulpritGrid; // the current (or latest) search
+  lastReport?: { searchId: string; report: CulpritReport; at: number }; // kept until the next report arrives
 }
 
 export const MAX_EVENTS = 400;
@@ -263,7 +264,7 @@ export function reduce(state: UiState, e: FeedEvent): UiState {
           order = [...order, v.label];
         }
       }
-      return { ...base, culprit: { ...grid, variants, order, report: e.report } };
+      return { ...base, culprit: { ...grid, variants, order, report: e.report }, lastReport: { searchId: e.searchId, report: e.report, at: e.ts } };
     }
     case "human_action":
     case "llm_call":

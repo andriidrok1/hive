@@ -64,6 +64,23 @@ describe("reducer", () => {
     expect(s.culprit?.report?.culprits).toEqual(["A1", "M2"]);
   });
 
+  it("a new culprit_search_started clears the previous grid and keeps the last report banner", () => {
+    const full = run(MOCK_EVENTS);
+    expect(full.culprit?.report?.kind).toBe("pair");
+    expect(full.lastReport?.searchId).toBe("cs_1");
+    const next = reduce(full, { id: full.lastEventId + 1, ts: 1, type: "culprit_search_started", searchId: "cs_2", suspects: ["M3"] });
+    expect(next.culprit?.searchId).toBe("cs_2");
+    expect(next.culprit?.suspects).toEqual(["M3"]);
+    expect(next.culprit?.order).toEqual([]);
+    expect(Object.keys(next.culprit?.variants ?? {})).toEqual([]);
+    expect(next.culprit?.report).toBeUndefined();
+    expect(next.lastReport?.searchId).toBe("cs_1"); // banner stays until cs_2 reports
+    expect(next.counters.culpritSearches).toBe(2);
+    // Only labels the server actually sent for cs_2 appear.
+    const withOne = reduce(next, { id: next.lastEventId + 1, ts: 2, type: "culprit_variant_result", searchId: "cs_2", variant: { label: "green+M3", applied: ["M3"], ok: false } });
+    expect(withOne.culprit?.order).toEqual(["green+M3"]);
+  });
+
   it("ignores duplicate event ids", () => {
     const sent = pick("briefing_sent", 0);
     const s1 = run([sent]);
