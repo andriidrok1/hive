@@ -39,6 +39,7 @@ function describe(e: FeedEvent, human: (id: string) => string, owner: (intentId:
   switch (e.type) {
     case "llm_call":
     case "file_read":
+    case "culprit_variant_result": // the notice under the tiles covers these
       return null;
     case "intent_status": {
       const a = owner(e.intentId);

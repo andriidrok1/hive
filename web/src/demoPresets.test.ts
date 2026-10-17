@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEMO_GAP_MS, DEMO_PRESETS, spawnDemoAgents } from "./demoPresets";
 import { setMockSink } from "./api";
+import { firstClause, getAgentTitle } from "./titles";
 
 describe("spawnDemoAgents", () => {
   const fetchMock = vi.fn(async () => new Response('{"ok":true}', { status: 200 }));
@@ -21,7 +22,10 @@ describe("spawnDemoAgents", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const first = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(first[0]).toBe("/api/agents");
-    expect(JSON.parse(String(first[1].body))).toEqual(DEMO_PRESETS[0]);
+    const alex = DEMO_PRESETS[0];
+    // The API body is exactly { agentId, humanId, task }; the title stays on the client.
+    expect(JSON.parse(String(first[1].body))).toEqual({ agentId: alex?.agentId, humanId: alex?.humanId, task: alex?.task });
+    expect(getAgentTitle("agent-alex")).toBe("Receipt and receipt width in order.ts");
 
     await vi.advanceTimersByTimeAsync(DEMO_GAP_MS - 1);
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -29,7 +33,16 @@ describe("spawnDemoAgents", () => {
     await done;
     expect(fetchMock).toHaveBeenCalledTimes(2);
     const second = fetchMock.mock.calls[1] as unknown as [string, RequestInit];
-    expect(JSON.parse(String(second[1].body))).toEqual(DEMO_PRESETS[1]);
+    const nika = DEMO_PRESETS[1];
+    expect(JSON.parse(String(second[1].body))).toEqual({ agentId: nika?.agentId, humanId: nika?.humanId, task: nika?.task });
+    expect(getAgentTitle("agent-nika")).toBe("Negative prices and aligned money in format.ts");
+  });
+
+  it("firstClause gives untitled agents a short summary", () => {
+    expect(firstClause("Add state tax to checkout. Then write tests.")).toBe("Add state tax to checkout");
+    expect(firstClause("Make formatPrice handle -1.50 values. More.")).toBe("Make formatPrice handle -1.50 values");
+    expect(firstClause("x".repeat(100))).toHaveLength(70);
+    expect(firstClause("short task")).toBe("short task");
   });
 
   it("presets match the demo script", () => {

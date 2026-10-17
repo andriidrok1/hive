@@ -21,7 +21,7 @@ describe("AgentCard", () => {
         humanId="masha"
         status="thinking"
         control="run"
-        task="Add state tax"
+        task="Add state tax. Cover NY and WA rates with tests."
         intent={{ id: "M2", agentId: "agent-masha", humanId: "masha", status: "in_progress", createdAt: 1, updatedAt: 1, baseRev: 1, target: { file: "src/checkout.ts", symbol: "applyTax" }, action: "modify", what: "support NY", input: "", output: "returns total with NY tax" }}
         actions={["read src/checkout.ts @0"]}
         viewer="andrii"
@@ -31,7 +31,9 @@ describe("AgentCard", () => {
       />,
     );
     expect(screen.getByText("Working")).toBeTruthy();
-    expect(screen.getByText("support NY")).toBeTruthy(); // intent `what` wins over the task
+    // Primary line is a short title (first clause of the task when nobody set one); the full task is under "details".
+    expect(screen.getByTestId("agent-title").textContent).toBe("Feature: Add state tax");
+    expect(screen.getByTestId("agent-task").textContent).toBe("Add state tax. Cover NY and WA rates with tests.");
     expect(screen.getByText(/M2 · modify applyTax · in_progress/)).toBeTruthy();
     expect(screen.getByText("test/checkout.test.ts")).toBeTruthy();
     expect(screen.getByText("3m")).toBeTruthy();

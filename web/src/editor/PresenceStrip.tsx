@@ -66,6 +66,7 @@ export function PresenceStrip({ intents, openPath, now }: { intents: Intent[]; o
               <span className="font-mono text-foreground">{i.id}</span>
               <span className="whitespace-nowrap text-foreground/90">
                 {i.agentId} ({i.humanId}) is working on <span className="font-mono">{i.target.symbol}</span>
+                <span className="text-muted-foreground">: {i.what}</span>
               </span>
               <Tooltip>
                 <TooltipTrigger asChild>

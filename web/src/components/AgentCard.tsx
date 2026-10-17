@@ -3,6 +3,7 @@ import { FileText, MessageSquare, MoreHorizontal, Pause, Play, Square, Zap } fro
 import type { AgentControl, AgentStatus, Intent } from "@hive/shared";
 import { TERMINAL_AGENT_STATUSES } from "@hive/shared";
 import { agentColor, type AgentMeta } from "../state";
+import { agentTitle } from "../titles";
 import { controlAgent, sendNote } from "../api";
 import { Button } from "./ui/button";
 import { Card } from "./ui/card";
@@ -78,7 +79,8 @@ export function AgentCard({ agentId, humanId, status, control, task, intent, act
   const paused = status === "paused" || control === "pause";
   const view = statusView(status, intent, testsRunning);
   const progress = status === "done" ? 1 : meta?.step !== undefined ? Math.min(1, meta.step / STEP_BUDGET) : null;
-  const line = intent?.what ?? task;
+  // What a human wants to read: a short title ("Feature: …"); the full task sits under a disclosure.
+  const title = agentTitle(agentId, task);
 
   const run = (p: Promise<void>) => {
     setErr(null);
@@ -117,7 +119,20 @@ export function AgentCard({ agentId, humanId, status, control, task, intent, act
               <MoreHorizontal />
             </Button>
           </div>
-          {line && <div className="mt-1 truncate text-[13px] text-foreground/90">{line}</div>}
+          {title && (
+            <div className="mt-1 truncate text-[13px] text-foreground/90" data-testid="agent-title">
+              <span className="text-muted-foreground">Feature: </span>
+              {title}
+            </div>
+          )}
+          {task && task !== title && (
+            <details className="mt-1 text-xs text-muted-foreground" onClick={(e) => e.stopPropagation()}>
+              <summary className="cursor-pointer select-none text-[11px] hover:text-foreground">details</summary>
+              <div className="mt-1 whitespace-pre-wrap leading-snug text-foreground/80" data-testid="agent-task">
+                {task}
+              </div>
+            </details>
+          )}
           {!terminal || progress !== null ? (
             <div className="mt-2 h-1 w-full overflow-hidden rounded-full bg-secondary" aria-label="progress">
               {progress === null ? (
