@@ -1,0 +1,117 @@
+import type { AgentId, FeedEvent, HiveMode, IntentId } from "@hive/shared";
+
+/** Counters the bench needs from a full run's feed. Feed it every event from /ws/feed, in order. */
+export class FeedCounters {
+  events = 0;
+  toolCalls = 0; // agent_status events with status "tool" (one per tool execution)
+  llmCalls = 0;
+  agentLlmCalls = 0;
+  tokensIn = 0;
+  tokensOut = 0;
+  briefingsSent = 0;
+  acksAdapted = 0;
+  conflictsCaught = 0; // intent_declared with at least one conflict: caught before any code
+  intentsDeclared = 0;
+  edits = 0;
+  culpritSearches = 0;
+  culpritReports: { culprits: IntentId[]; kind: string }[] = [];
+  private intentOwner = new Map<IntentId, AgentId>();
+
+  ingest(e: FeedEvent): void {
+    this.events++;
+    switch (e.type) {
+      case "agent_status":
+        if (e.status === "tool") this.toolCalls++;
+        break;
+      case "llm_call":
+        this.llmCalls++;
+        if (e.purpose.startsWith("agent:")) this.agentLlmCalls++;
+        this.tokensIn += e.tokensIn;
+        this.tokensOut += e.tokensOut;
+        break;
+      case "briefing_sent":
+        this.briefingsSent++;
+        break;
+      case "briefing_acked":
+        if (e.ack.response === "adapted") this.acksAdapted++;
+        break;
+      case "intent_declared":
+        this.intentsDeclared++;
+        this.intentOwner.set(e.intent.id, e.intent.agentId);
+        if (e.conflicts.length > 0) this.conflictsCaught++;
+        break;
+      case "edit_applied":
+        this.edits++;
+        break;
+      case "culprit_search_started":
+        this.culpritSearches++;
+        break;
+      case "culprit_found":
+        this.culpritReports.push({ culprits: e.report.culprits, kind: e.report.kind });
+        break;
+      default:
+        break;
+    }
+  }
+
+  /** Owners (agentIds) named by the last culprit report, deduplicated. Unknown intent ids are kept as-is. */
+  lastCulpritOwners(): AgentId[] | null {
+    const last = this.culpritReports.at(-1);
+    if (!last) return null;
+    return [...new Set(last.culprits.map((id) => this.intentOwner.get(id) ?? id))].sort();
+  }
+
+  /** true/false when a culprit report exists, null when no search produced one. */
+  culpritCorrect(expected: AgentId[]): boolean | null {
+    const owners = this.lastCulpritOwners();
+    if (owners === null) return null;
+    const want = [...new Set(expected)].sort();
+    return owners.length === want.length && owners.every((o, i) => o === want[i]);
+  }
+}
+
+export interface ResultRow {
+  scenario: string;
+  variant: HiveMode;
+  repeat: number;
+  conflict: boolean;
+  success: boolean; // full suite + extraTests green
+  passed: number;
+  failed: number;
+  toolCalls: number;
+  llmCalls: number;
+  tokensIn: number;
+  tokensOut: number;
+  wallMs: number; // from the first agent start to the last agent's terminal status
+  briefingsSent: number;
+  acksAdapted: number;
+  conflictsCaught: number;
+  culpritSearches: number;
+  culpritCorrect: boolean | null;
+  mergeOk: boolean | null; // isolated only
+  agentsFinished: boolean; // false when the wait timed out
+  error: string; // empty when the run completed
+}
+
+export const CSV_COLUMNS: (keyof ResultRow)[] = [
+  "scenario",
+  "variant",
+  "repeat",
+  "conflict",
+  "success",
+  "passed",
+  "failed",
+  "toolCalls",
+  "llmCalls",
+  "tokensIn",
+  "tokensOut",
+  "wallMs",
+  "briefingsSent",
+  "acksAdapted",
+  "conflictsCaught",
+  "culpritSearches",
+  "culpritCorrect",
+  "mergeOk",
+  "agentsFinished",
+  "error",
+];
