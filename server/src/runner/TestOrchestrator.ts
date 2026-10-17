@@ -100,10 +100,22 @@ export class TestOrchestrator {
         runner.runTests({ ...files, [CHECK_TEST_PATH]: checkTestSource(intent, files[intent.target.file]) }, { filter: CHECK_TEST_NAME }),
       );
       onEvent({ type: "test_run_finished", runId: checkRun, rev, result: checkResult });
-      if (!checkResult.ok) {
+      const verdict = classifyCheck(checkResult);
+      if (verdict === "failed") {
         intents.setStatus(intentId, "failed", { rev });
         this.briefVerificationFailed(intent, checkResult);
         return;
+      }
+      if (verdict === "invalid") {
+        // The check itself could not run (ReferenceError, SyntaxError, ...): the code was not judged.
+        const firstLine = (checkResult.failures[0]?.message ?? "check did not run").split("\n").find((l) => l.trim().length > 0)?.trim() ?? "check did not run";
+        this.deps.briefings.push({
+          toAgent: intent.agentId,
+          kind: "verification_failed",
+          summary: clip(`Your check for ${intentId} could not run: ${firstLine}. Re-declare with a self-contained check; code was not judged.`),
+          details: { intentId, file: intent.target.file, symbol: intent.target.symbol, failingTests: checkResult.failures.slice(0, 3) },
+          requiresAck: false,
+        });
       }
     }
 
@@ -295,6 +307,23 @@ export function checkTestSource(intent: Intent, fileContent?: string): string {
     "",
   ];
   return lines.filter((l) => l !== "").join("\n");
+}
+
+export type CheckVerdict = "ok" | "failed" | "invalid";
+
+const RUNTIME_ERROR = /\b(ReferenceError|SyntaxError|TypeError|RangeError|EvalError|URIError)\b|is not defined|Failed to parse source|Transform failed|Cannot find (module|package)|failed to run/;
+
+/**
+ * `ok` when the check passed, `failed` when at least one failure is a real assertion
+ * (vitest reports `AssertionError`), `invalid` when the check could not run at all
+ * (ReferenceError/SyntaxError/TypeError, import failure, runner crash): the code was not judged.
+ */
+export function classifyCheck(result: TestResult): CheckVerdict {
+  if (result.ok) return "ok";
+  if (result.failures.length === 0) return "invalid";
+  if (result.failures.some((f) => /AssertionError/.test(f.message))) return "failed";
+  if (result.failures.some((f) => RUNTIME_ERROR.test(f.message) || f.name === "vitest" || f.name === "runner" || f.name.endsWith(CHECK_TEST_PATH))) return "invalid";
+  return "failed";
 }
 
 const RESERVED = new Set(["it", "expect", "describe", "default", "__target"]);
