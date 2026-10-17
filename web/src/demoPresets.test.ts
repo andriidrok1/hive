@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { DEMO_GAP_MS, DEMO_PRESETS, spawnDemoAgents } from "./demoPresets";
+import { DEMO_GAP_MS, DEMO_PRESETS, MIN_RESET_MS, spawnDemoAgents, type SpawnPhase } from "./demoPresets";
 import { setMockSink } from "./api";
 import { firstClause, getAgentTitle } from "./titles";
 
@@ -16,11 +16,22 @@ describe("spawnDemoAgents", () => {
     vi.unstubAllGlobals();
   });
 
-  it("posts alex immediately and nika 3 s later with the preset tasks", async () => {
-    const done = spawnDemoAgents();
+  it("resets the project first, then posts alex and nika 3 s apart with the preset tasks", async () => {
+    const phases: SpawnPhase[] = [];
+    const done = spawnDemoAgents({ onPhase: (p) => phases.push(p) });
     await vi.advanceTimersByTimeAsync(0);
+    // /api/reset { mode: "hive" } goes out before any agent, and the resetting state lasts at least 1 s.
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    const first = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    const reset = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(reset[0]).toBe("/api/reset");
+    expect(JSON.parse(String(reset[1].body))).toEqual({ mode: "hive" });
+    expect(phases).toEqual(["resetting"]);
+    await vi.advanceTimersByTimeAsync(MIN_RESET_MS - 1);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(phases).toEqual(["resetting", "starting"]);
+    const first = fetchMock.mock.calls[1] as unknown as [string, RequestInit];
     expect(first[0]).toBe("/api/agents");
     const alex = DEMO_PRESETS[0];
     // The API body is exactly { agentId, humanId, task }; the title stays on the client.
@@ -28,11 +39,12 @@ describe("spawnDemoAgents", () => {
     expect(getAgentTitle("agent-alex")).toBe("Receipt and receipt width in order.ts");
 
     await vi.advanceTimersByTimeAsync(DEMO_GAP_MS - 1);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
     await vi.advanceTimersByTimeAsync(1);
     await done;
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    const second = fetchMock.mock.calls[1] as unknown as [string, RequestInit];
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(phases).toEqual(["resetting", "starting", "idle"]);
+    const second = fetchMock.mock.calls[2] as unknown as [string, RequestInit];
     const nika = DEMO_PRESETS[1];
     expect(JSON.parse(String(second[1].body))).toEqual({ agentId: nika?.agentId, humanId: nika?.humanId, task: nika?.task });
     expect(getAgentTitle("agent-nika")).toBe("Negative prices and percent formatting in format.ts");

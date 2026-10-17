@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { FileText, FlaskConical, GitBranch, Plus, Rss, Users } from "lucide-react";
+import { FileText, FlaskConical, GitBranch, Plus, Rss } from "lucide-react";
 import { TERMINAL_AGENT_STATUSES } from "@hive/shared";
 import { connectLive, createStore, resyncAfterReset, startMock, useHive } from "./store";
 import { hub } from "./editor/yjs";
@@ -7,7 +7,6 @@ import { currentIntentOf, filesOfAgent, pendingBriefings, unresolvedConflicts } 
 import { isMock, lanUrl, loadHumanId, saveHumanId } from "./env";
 import { setMockSink } from "./api";
 import { MOCK_LAN_URL } from "./mock";
-import { spawnDemoAgents } from "./demoPresets";
 import { Rail } from "./components/Rail";
 import { ProjectPanel } from "./components/ProjectPanel";
 import { ProjectActivity } from "./components/ProjectActivity";
@@ -18,6 +17,7 @@ import { HistoryTab } from "./components/HistoryTab";
 import { CulpritTab } from "./components/CulpritTab";
 import { ContractsTab } from "./components/ContractsTab";
 import { StartAgentDialog } from "./components/StartAgentDialog";
+import { SpawnDemoButton } from "./components/SpawnDemoButton";
 import { EditorPane, defaultPath } from "./editor/EditorPane";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./components/ui/tabs";
 import { TooltipProvider } from "./components/ui/tooltip";
@@ -82,6 +82,8 @@ export function App({ mockStepMs }: { mockStepMs?: number } = {}) {
     saveHumanId(id);
   };
 
+  // Your own agent is running: the demo button must not reset the project under it.
+  const agentsRunning = state.agents.some((a) => a.agentId === myAgentId(humanId) && !TERMINAL_AGENT_STATUSES.includes(a.status));
   const conflicts = unresolvedConflicts(state).length;
   const pending = pendingBriefings(state).length;
   const searching = Boolean(state.culprit && !state.culprit.report);
@@ -115,10 +117,8 @@ export function App({ mockStepMs }: { mockStepMs?: number } = {}) {
                   {pending > 0 && <Badge variant="warning">{pending} unacked</Badge>}
                 </TabsTrigger>
                 {/* Labelled primary action first; "New agent" is the compact "+" (also reachable from the empty state and the chat box). */}
-                <Button size="sm" className="ml-auto shrink-0" title="Starts agent-alex now and agent-nika 3 s later" onClick={() => void spawnDemoAgents()}>
-                  <Users />
-                  Spawn demo agents
-                </Button>
+                <span className="ml-auto" />
+                <SpawnDemoButton size="sm" className="shrink-0" agentsRunning={agentsRunning} />
                 <Button variant="outline" size="icon" className="ml-1.5 size-7 shrink-0" title="New agent" aria-label="New agent" onClick={() => setDialog(true)}>
                   <Plus />
                 </Button>
@@ -130,10 +130,7 @@ export function App({ mockStepMs }: { mockStepMs?: number } = {}) {
                     {state.agents.length === 0 && (
                       <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-border px-4 py-8 text-center" data-testid="empty-agents">
                         <div className="text-[13px] text-muted-foreground">No agents yet.</div>
-                        <Button size="lg" onClick={() => void spawnDemoAgents()}>
-                          <Users />
-                          Spawn demo agents
-                        </Button>
+                        <SpawnDemoButton size="lg" agentsRunning={agentsRunning} />
                         <div className="text-xs text-muted-foreground">Starts Alex (order.ts) and Nika (format.ts)</div>
                         <Button variant="outline" size="sm" onClick={() => setDialog(true)}>
                           <Plus />

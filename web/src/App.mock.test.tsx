@@ -35,6 +35,10 @@ describe("App in ?mock=1 mode", () => {
     });
     expect(screen.getByTestId("card-agent-andrii")).toBeTruthy();
     expect(screen.getByTestId("card-agent-masha")).toBeTruthy();
+    // Your agent (agent-andrii) is running: the demo button is disabled and says why.
+    const spawn = screen.getByRole("button", { name: /Spawn demo agents/ }) as HTMLButtonElement;
+    expect(spawn.disabled).toBe(true);
+    expect(spawn.title).toBe("Agents are running");
     const agentsTab = screen.getByRole("tab", { name: /^Agents/ });
     expect(agentsTab.getAttribute("aria-selected")).toBe("true");
 

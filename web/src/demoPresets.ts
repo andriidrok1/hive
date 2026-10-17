@@ -1,4 +1,4 @@
-import { startAgent } from "./api";
+import { resetHive, startAgent } from "./api";
 import { setAgentTitle } from "./titles";
 
 export interface DemoPreset {
@@ -27,10 +27,21 @@ export const DEMO_PRESETS: DemoPreset[] = [
 ];
 
 export const DEMO_GAP_MS = 3000;
+export const MIN_RESET_MS = 1000; // the "Resetting project…" state is visible for at least this long
+
+export type SpawnPhase = "idle" | "resetting" | "starting";
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
-export async function spawnDemoAgents(gapMs = DEMO_GAP_MS): Promise<void> {
+// Every take starts from the clean project: POST /api/reset { mode: "hive" }, wait for it (and at
+// least MIN_RESET_MS so the state is readable), then start Alex and Nika DEMO_GAP_MS apart.
+export async function spawnDemoAgents(opts: { reset?: boolean; gapMs?: number; minResetMs?: number; onPhase?: (p: SpawnPhase) => void } = {}): Promise<void> {
+  const { reset = true, gapMs = DEMO_GAP_MS, minResetMs = MIN_RESET_MS, onPhase } = opts;
+  if (reset) {
+    onPhase?.("resetting");
+    await Promise.all([resetHive("hive"), sleep(minResetMs)]);
+  }
+  onPhase?.("starting");
   for (let i = 0; i < DEMO_PRESETS.length; i++) {
     const p = DEMO_PRESETS[i];
     if (!p) continue;
@@ -39,4 +50,5 @@ export async function spawnDemoAgents(gapMs = DEMO_GAP_MS): Promise<void> {
     // The API body is exactly { agentId, humanId, task }; the title stays client-side.
     await startAgent({ agentId: p.agentId, humanId: p.humanId, task: p.task });
   }
+  onPhase?.("idle");
 }
