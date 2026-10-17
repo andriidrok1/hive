@@ -99,7 +99,7 @@ describe("FeedCounters on a scripted hive run", () => {
 
   it("counts culprit searches and judges the report by owners", () => {
     expect(c.culpritSearches).toBe(1);
-    expect(c.lastCulpritOwners()).toEqual(["agent-oleg", "agent-masha"]);
+    expect(c.lastCulpritOwners()).toEqual(["agent-masha", "agent-oleg"]); // sorted
     expect(c.culpritCorrect(["agent-oleg", "agent-masha"])).toBe(true);
     expect(c.culpritCorrect(["agent-masha", "agent-oleg"])).toBe(true);
     expect(c.culpritCorrect(["agent-oleg"])).toBe(false);
