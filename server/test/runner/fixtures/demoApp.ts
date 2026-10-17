@@ -193,6 +193,7 @@ describe("formatPrice", () => {
 `,
   "test/order.test.ts": `import { describe, expect, it } from "vitest";
 import { calculateTotal } from "../src/checkout.js";
+import { formatPrice } from "../src/format.js";
 import { orderSummary } from "../src/order.js";
 
 const items = [
@@ -212,7 +213,7 @@ describe("orderSummary", () => {
     const s = orderSummary(items, { code: "TEN", kind: "percent", value: 10 });
     expect(s.lines).toHaveLength(3);
     expect(s.lines[0]).toBe("Subtotal: $100.00");
-    expect(s.lines[1]).toBe("Discount: $10.00");
+    expect(s.lines[s.lines.length - 1]).toBe("Total: " + formatPrice(s.total));
   });
 });
 `,
