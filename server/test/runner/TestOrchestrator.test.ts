@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { History, ProjectStore, ReadLog } from "../../src/core/index.js";
 import { BriefingQueue, CallGraph, IntentRegistry } from "../../src/coord/index.js";
 import { CulpritFinder } from "../../src/runner/CulpritFinder.js";
-import { checkTestSource, CHECK_TEST_PATH, classifyCheck, exportedValueNames, isTestFile, TestOrchestrator, type TestOrchestratorDeps } from "../../src/runner/TestOrchestrator.js";
+import { checkTestSource, CHECK_TEST_PATH, classifyCheck, exportedValueNames, groupFailingByFile, isTestFile, TestOrchestrator, type TestOrchestratorDeps } from "../../src/runner/TestOrchestrator.js";
 import { LocalRunner } from "../../src/runner/LocalRunner.js";
 import { applyAll, breakDiscount, dependentPair, harmlessFormatChange, taxInCalculateTotal, taxLineInOrderSummary } from "./fixtures/changeSets.js";
 import { DEMO_APP_FILES } from "./fixtures/demoApp.js";
@@ -104,7 +104,7 @@ function intentOf(cs: ChangeSet, extra: Partial<Intent> = {}): Intent {
 }
 
 /** Runner whose verdict depends on the files, so the culprit finder gets meaningful variants. */
-function predicateRunner(isGreen: (files: Record<string, string>) => boolean, failureMessage = "AssertionError: expected 9000 to be 9653", failure = { name: "calculateTotal > applies a percent promo" }) {
+function predicateRunner(isGreen: (files: Record<string, string>) => boolean, failureMessage = "AssertionError: expected 9000 to be 9653", failure = { name: "test/checkout.test.ts: calculateTotal > applies a percent promo" }) {
   const calls: { files: Record<string, string>; filter?: string }[] = [];
   const runner: Runner = {
     async runTests(files, opts) {
@@ -265,6 +265,23 @@ describe("TestOrchestrator", () => {
     expect(b.summary.length).toBeLessThanOrEqual(400);
     expect(b.details.intentId).toBe("B1");
     expect(b.details.failingTests?.[0]?.name).toContain("calculateTotal");
+    expect(b.summary).toBe(
+      "Tests fail after your change set B1. If the behavior change is intended, update the failing tests in your own files and tell the owners of the other files what changed (ask_agent). Failing: test/checkout.test.ts: calculateTotal > applies a percent promo",
+    );
+    expect(b.summary).not.toContain("revert");
+  });
+
+  it("groupFailingByFile groups names by their file prefix", () => {
+    expect(
+      groupFailingByFile([
+        { name: "test/order.test.ts: orderSummary > renders three lines" },
+        { name: "test/checkout.test.ts: calculateTotal > a" },
+        { name: "test/checkout.test.ts: calculateTotal > b" },
+        { name: "vitest" },
+      ]),
+    ).toBe("test/checkout.test.ts: calculateTotal > a, calculateTotal > b; test/order.test.ts: orderSummary > renders three lines; vitest");
+    expect(groupFailingByFile([])).toBe("none");
+    expect(groupFailingByFile(Array.from({ length: 6 }, (_, i) => ({ name: `test/a.test.ts: t${i}` })))).toBe("test/a.test.ts: t0, t1, t2, t3 (+2 more)");
   });
 
   it("8c. red path, pair: both owners get a briefing naming both promised outputs", async () => {
@@ -285,6 +302,8 @@ describe("TestOrchestrator", () => {
       expect(b.kind).toBe("culprit");
       expect(b.summary).toContain("total includes CA tax");
       expect(b.summary).toContain("orderSummary has a tax line");
+      expect(b.summary).toContain("Failing: test/checkout.test.ts: calculateTotal > applies a percent promo");
+      expect(b.summary).not.toContain("revert");
     }
     expect(t.intents.statuses.map((s) => s.id).sort()).toEqual(["A2", "B2"]);
     expect(t.intents.statuses.every((s) => s.status === "failed")).toBe(true);
@@ -305,13 +324,13 @@ describe("TestOrchestrator", () => {
       expect(b.requiresAck).toBe(false);
     }
     const andrii = t.briefings.all.find((b) => b.toAgent === "agent-andrii")!;
-    expect(andrii.summary).toBe("Tests are red after your intents A1, A1b, cause unclear; failing: calculateTotal > applies a percent promo");
+    expect(andrii.summary).toBe("Tests are red after your intents A1, A1b, cause unclear; failing: test/checkout.test.ts: calculateTotal > applies a percent promo");
   });
 
   it("8e. cooldown: a second red run within 20s with the same failing tests skips the culprit search; a new failure set runs it", async () => {
     const s1 = harmlessFormatChange();
     const s2 = breakDiscount();
-    const failure = { name: "calculateTotal > applies a percent promo" };
+    const failure = { name: "test/checkout.test.ts: calculateTotal > applies a percent promo" };
     const t = setup({
       files: applyAll(DEMO_APP_FILES, [s1, s2]),
       changeSets: [s1, s2],
@@ -327,7 +346,7 @@ describe("TestOrchestrator", () => {
     expect(t.events.filter((e) => e.type === "test_run_finished").length).toBe(runsAfterFirst + 1);
     expect(t.events.filter((e) => e.type === "culprit_search_started").length).toBe(1);
 
-    failure.name = "orderSummary > renders three lines";
+    failure.name = "test/order.test.ts: orderSummary > renders three lines";
     await t.orchestrator.onIntentFinished("A1");
     expect(t.events.filter((e) => e.type === "culprit_search_started").length).toBe(2);
   });

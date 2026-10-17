@@ -83,7 +83,24 @@ interface VitestJson {
   testResults?: VitestFileResult[];
 }
 
-/** Parse the vitest JSON reporter output into a TestResult. */
+export const FAILURE_MESSAGE_LIMIT = 300;
+
+/**
+ * The one line of a failure worth carrying around: the first meaningful line, with stack frames
+ * ("at ...", vitest's "❯ ..." frames) and jsdiff/expected-received scaffolding dropped and whitespace
+ * collapsed, at most 300 chars. Stack traces inflate every briefing and the agents' contexts.
+ */
+export function failureMessage(raw: string | null | undefined, fallback = "test failed"): string {
+  const lines = (raw ?? "")
+    .split("\n")
+    .map((l) => l.replace(/\u001b\[[0-9;]*m/g, "").replace(/\s+/g, " ").trim())
+    .filter((l) => l.length > 0)
+    .filter((l) => !/^(at |❯ |- Expected|\+ Received|Expected:|Received:)/.test(l) && !/^\S+:\d+:\d+$/.test(l));
+  const first = lines[0] ?? fallback;
+  return first.length > FAILURE_MESSAGE_LIMIT ? `${first.slice(0, FAILURE_MESSAGE_LIMIT - 1)}…` : first;
+}
+
+/** Parse the vitest JSON reporter output into a TestResult. Failure names are `<file>: <full test name>`. */
 export function parseVitestJson(json: string, durationMs: number, root?: string): TestResult {
   const data = JSON.parse(json) as VitestJson;
   const failures: { name: string; message: string }[] = [];
@@ -96,16 +113,17 @@ export function parseVitestJson(json: string, durationMs: number, root?: string)
       if (a.status === "passed") passed += 1;
       else if (a.status === "failed") {
         failed += 1;
+        const testName = a.fullName ?? a.title ?? fileName;
         failures.push({
-          name: a.fullName ?? a.title ?? fileName,
-          message: truncate((a.failureMessages ?? []).join("\n"), 2000),
+          name: fileName && testName !== fileName ? `${fileName}: ${testName}` : testName,
+          message: failureMessage((a.failureMessages ?? []).join("\n")),
         });
       }
     }
     if (file.status === "failed" && !assertions.some((a) => a.status === "failed")) {
       // collection or import error: the whole file failed without individual assertions
       failed += 1;
-      failures.push({ name: fileName, message: truncate(file.message ?? "test file failed to run", 2000) });
+      failures.push({ name: fileName, message: failureMessage(file.message, "test file failed to run") });
     }
   }
   const ok = (data.success ?? failed === 0) && failed === 0;
@@ -118,7 +136,7 @@ export function brokenRun(reason: string, durationMs: number, details?: string):
     ok: false,
     passed: 0,
     failed: 1,
-    failures: [{ name: "vitest", message: truncate(`${reason}${details ? `\n${details}` : ""}`, 2000) }],
+    failures: [{ name: "vitest", message: failureMessage(`${reason}${details ? ` — ${failureMessage(details, "")}` : ""}`) }],
     durationMs,
   };
 }

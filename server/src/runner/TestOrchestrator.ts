@@ -247,27 +247,42 @@ export class TestOrchestrator {
       return { intentId: id, file: intent?.target.file, symbol: intent?.target.symbol, failingTests: failing, diff: byId.get(id)?.patch.slice(0, 2000) };
     };
 
+    const failingByFile = groupFailingByFile(result.failures);
     if (report.kind === "single") {
-      const id = report.culprits[0]!;
-      const owner = ownerOf(id);
+      const owner = ownerOf(report.culprits[0]!);
       if (owner) {
-        this.push(owner, "culprit", clip(`Tests fail because of your change set ${describe(id)}. With it removed the suite is green. Fix it or revert.`), detailsFor(id));
+        this.push(
+          owner,
+          "culprit",
+          clip(
+            `Tests fail after your change set ${report.culprits.join(", ")}. If the behavior change is intended, update the failing tests in your own files and tell the owners of the other files what changed (ask_agent). Failing: ${failingByFile}`,
+          ),
+          detailsFor(report.culprits[0]!),
+        );
       }
       return;
     }
     if (report.kind === "pair") {
-      const [a, b] = report.culprits as [IntentId, IntentId];
-      for (const [mine, other] of [
-        [a, b],
-        [b, a],
-      ] as const) {
-        const owner = ownerOf(mine);
-        if (!owner) continue;
+      // culprits hold both agents' intents; split them by owner
+      const byOwner = new Map<AgentId, IntentId[]>();
+      for (const id of report.culprits) {
+        const owner = ownerOf(id);
+        if (owner) byOwner.set(owner, [...(byOwner.get(owner) ?? []), id]);
+      }
+      const promised = (id: IntentId): string => {
+        const out = intents.get(id)?.output;
+        return out ? `${id} (promised: ${out})` : id;
+      };
+      for (const [owner, mine] of byOwner) {
+        const others = [...byOwner].filter(([o]) => o !== owner);
+        const otherText = others.map(([o, ids]) => `${ids.map(promised).join(", ")} by ${o}`).join(" and ");
         this.push(
           owner,
           "culprit",
-          clip(`Your change set ${describe(mine)} and ${describe(other)} are each green alone but red together. Coordinate with ${ownerOf(other) ?? "the other agent"}: one of the two promised outputs must change.`),
-          detailsFor(mine),
+          clip(
+            `Your change set ${mine.map(promised).join(", ")} and ${otherText} are each green alone but red together; one promised output must change. If yours is intended, update the failing tests in your own files and tell ${others.map(([o]) => o).join(", ") || "the other agent"} what changed (ask_agent). Failing: ${failingByFile}`,
+          ),
+          detailsFor(mine[0]!),
         );
       }
       return;
@@ -284,7 +299,7 @@ export class TestOrchestrator {
       this.push(
         owner,
         "culprit",
-        clip(`Tests are red and ${why}. Suspects: ${culpritIds.join(", ")}. Yours: ${ids.map(describe).join("; ")}. Check the failing tests.`),
+        clip(`Tests are red and ${why}. Suspects: ${culpritIds.join(", ")}. Yours: ${ids.map(describe).join("; ")}. Failing: ${failingByFile}`),
         detailsFor(ids[0]!),
       );
     }
@@ -430,6 +445,28 @@ export function exportedValueNames(source: string): string[] {
     }
   }
   return [...out];
+}
+
+/**
+ * `test/checkout.test.ts: calculateTotal > a, calculateTotal > b; test/order.test.ts: orderSummary > c`
+ * Names come from the runner as `<file>: <full name>`; names without a file prefix go last.
+ */
+export function groupFailingByFile(failures: { name: string }[], maxPerFile = 4): string {
+  if (failures.length === 0) return "none";
+  const byFile = new Map<string, string[]>();
+  for (const f of failures) {
+    const m = /^([^\s:]+\.[cm]?[jt]sx?): (.+)$/.exec(f.name);
+    const file = m ? m[1]! : "";
+    const test = m ? m[2]! : f.name;
+    byFile.set(file, [...(byFile.get(file) ?? []), test]);
+  }
+  const parts: string[] = [];
+  for (const [file, tests] of [...byFile].sort(([a], [b]) => (a === "" ? 1 : b === "" ? -1 : a.localeCompare(b)))) {
+    const shown = tests.slice(0, maxPerFile);
+    const more = tests.length > shown.length ? ` (+${tests.length - shown.length} more)` : "";
+    parts.push(`${file ? `${file}: ` : ""}${shown.join(", ")}${more}`);
+  }
+  return parts.join("; ");
 }
 
 function clip(s: string, max = 400): string {

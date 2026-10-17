@@ -12,12 +12,12 @@ export { FreestyleRunner, DEFAULT_PROJECT_DIR } from "./FreestyleRunner.js";
 export type { FreestyleRunnerOptions, VmTimings } from "./FreestyleRunner.js";
 export { CulpritFinder, MAX_SUSPECTS, MAX_PAIR_GROUPS, groupByAgent, shortName } from "./CulpritFinder.js";
 export type { SuspectGroup } from "./CulpritFinder.js";
-export { TestOrchestrator, CHECK_TEST_PATH, checkTestSource, exportedValueNames, classifyCheck, isTestFile } from "./TestOrchestrator.js";
+export { TestOrchestrator, CHECK_TEST_PATH, checkTestSource, exportedValueNames, classifyCheck, isTestFile, groupFailingByFile } from "./TestOrchestrator.js";
 export type { CheckVerdict } from "./TestOrchestrator.js";
 export type { TestOrchestratorDeps, StoreLike, HistoryLike, IntentsLike, BriefingsLike, ReadsLike, GraphLike } from "./TestOrchestrator.js";
 export { prepareBaseSnapshot, readBaseSnapshotRecord, writeBaseSnapshotRecord, readProjectFiles, baseSnapshotPath, BASE_SNAPSHOT_FILE } from "./prepare.js";
 export type { PrepareOptions, PrepareTimings, BaseSnapshotRecord } from "./prepare.js";
-export { findRepoRoot, parseVitestJson, Semaphore } from "./util.js";
+export { findRepoRoot, parseVitestJson, failureMessage, Semaphore } from "./util.js";
 
 /**
  * Picks the runner from the environment: `HIVE_RUNNER=freestyle` needs `FREESTYLE_API_KEY` and a base
