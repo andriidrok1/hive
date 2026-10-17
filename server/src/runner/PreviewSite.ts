@@ -184,6 +184,16 @@ export class PreviewSite {
     ]);
   }
 
+  /** Rewrite the preview files on the running VM and restart the in-VM server (no new VM). */
+  async redeploy(): Promise<void> {
+    await this.ensure();
+    const vm = this.vm!;
+    await this.writePreviewFiles(vm);
+    await vm.exec({ command: "pkill -f preview-server.mjs || true; sleep 0.5", timeoutMs: 20_000 });
+    await this.startServer(vm);
+    this.log("preview server redeployed");
+  }
+
   /** Start the preview server if it is not already listening. */
   private async startServer(vm: Vm): Promise<void> {
     const check = `cd ${q(this.projectDir)} && (curl -sf -o /dev/null http://127.0.0.1:${PREVIEW_PORT}/health && echo up) || (nohup node preview-server.mjs > /tmp/preview-site.log 2>&1 & sleep 1; curl -sf -o /dev/null http://127.0.0.1:${PREVIEW_PORT}/health && echo started || (echo failed; tail -20 /tmp/preview-site.log))`;
@@ -246,10 +256,12 @@ registerHooks({
 
 /** Prints the receipt data as JSON. Re-run per request so the latest files are used. */
 const PREVIEW_MTS = `import { readdirSync } from "node:fs";
+// Exactly the cart of GET /api/preview (server/src/api/humans.ts): subtotal 5647, TEN -> discount 564.7,
+// so the receipt shows the project's rounding bug until an agent fixes it.
 const items = [
-  { sku: "flat-white", priceCents: 500, qty: 2 },
-  { sku: "croissant", priceCents: 450, qty: 1 },
-  { sku: "beans-250g", priceCents: 1550, qty: 1 },
+  { sku: "Coffee beans 1kg", priceCents: 1899, qty: 2 },
+  { sku: "Ceramic mug", priceCents: 1250, qty: 1 },
+  { sku: "Filters (100)", priceCents: 599, qty: 1 },
 ];
 const promo = { code: "TEN", kind: "percent", value: 10 };
 const out: Record<string, unknown> = { items, promo, generatedAt: new Date().toISOString() };
@@ -263,12 +275,23 @@ for (const f of readdirSync("./src").filter((n) => n.endsWith(".ts") && !n.endsW
   }
 }
 out.capabilities = capabilities;
+let order: Record<string, unknown> = {};
 try {
-  const order = (await import("./src/order.js")) as { orderSummary: (i: unknown, p?: unknown) => unknown };
-  out.summary = order.orderSummary(items, promo);
+  order = (await import("./src/order.js")) as Record<string, unknown>;
+  out.summary = (order.orderSummary as (i: unknown, p?: unknown) => unknown)(items, promo);
 } catch (err) {
   out.error = err instanceof Error ? err.message.split("\\n")[0] : String(err);
 }
+try {
+  if (typeof order.receipt === "function") out.receipt = (order.receipt as (i: unknown, p?: unknown) => unknown)(items, promo);
+} catch (err) {
+  out.receiptError = err instanceof Error ? err.message.split("\\n")[0] : String(err);
+}
+try {
+  const fmt = (await import("./src/format.js")) as Record<string, unknown>;
+  if (typeof fmt.formatPercent === "function") out.formatPercent = (fmt.formatPercent as (n: number) => unknown)(10);
+  if (typeof fmt.formatPrice === "function") out.negative = (fmt.formatPrice as (n: number) => unknown)(-150);
+} catch {}
 try {
   const tax = (await import("./src/tax.js")) as { applyTax?: (c: number, s: string) => number };
   const s = out.summary as { total?: number } | undefined;
@@ -297,6 +320,9 @@ function html(d) {
   const caps = Object.entries(d.capabilities || {}).map(([m, fns]) => "<div><b>" + esc(m) + "</b> " + fns.map(esc).join(", ") + "</div>").join("");
   const err = d.error ? '<div class=err>⚠ ' + esc(d.error) + "</div>" : "";
   const lines = (s.lines || []).map((l) => "<div>" + esc(l) + "</div>").join("");
+  const receiptText = d.receipt == null ? "" : Array.isArray(d.receipt) ? d.receipt.join("\\n") : typeof d.receipt === "string" ? d.receipt : JSON.stringify(d.receipt, null, 1);
+  const receipt = receiptText ? '<div class=receipt><b>receipt()</b>\\n' + esc(receiptText) + "</div>" : d.receiptError ? '<div class=err>receipt(): ' + esc(d.receiptError) + "</div>" : "";
+  const extras = [d.formatPercent != null ? "formatPercent(10) → " + esc(d.formatPercent) : "formatPercent: —", d.negative != null ? "formatPrice(-150) → " + esc(d.negative) : "formatPrice(-150): —"].join(" · ");
   return '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="refresh" content="3"><title>Hive Coffee receipt</title><style>' +
     "body{margin:0;background:#2b2b2b;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:#222;display:flex;justify-content:center;padding:32px 16px}" +
     ".paper{background:#fdfdf8;width:min(380px,100%);padding:28px 24px 40px;box-shadow:0 12px 40px rgba(0,0,0,.5);position:relative}" +
@@ -304,6 +330,7 @@ function html(d) {
     "h1{font-size:16px;letter-spacing:.12em;text-align:center;margin:0 0 4px}.sub{text-align:center;font-size:11px;color:#666;margin-bottom:16px}" +
     "table{width:100%;border-collapse:collapse;font-size:13px}td{padding:3px 0}.r{text-align:right}.tot td{border-top:1px dashed #999;padding-top:8px;font-weight:bold}" +
     ".lines{margin:14px 0;padding:10px 0;border-top:1px dashed #999;border-bottom:1px dashed #999;font-size:12px;white-space:pre}" +
+    ".receipt{margin:14px 0 0;padding:10px;background:#f3f3ea;font-size:12px;white-space:pre-wrap;border:1px dashed #bbb}" +
     ".caps{font-size:10px;color:#555;margin-top:16px;line-height:1.5}.err{background:#fde8e8;color:#9b1c1c;padding:8px;font-size:12px;margin:12px 0}" +
     ".foot{text-align:center;font-size:10px;color:#888;margin-top:18px}</style></head><body><div class=paper>" +
     "<h1>HIVE COFFEE · Order #1042</h1><div class=sub>" + esc(d.generatedAt || "") + " · promo " + esc((d.promo || {}).code || "") + "</div>" +
@@ -312,8 +339,8 @@ function html(d) {
     "<tr><td>Discount</td><td class=r>-" + money(s.discount) + "</td></tr>" +
     "<tr class=tot><td>Total</td><td class=r>" + money(s.total) + "</td></tr>" +
     (typeof d.taxedTotalCA === "number" ? "<tr><td>Total incl. CA tax</td><td class=r>" + money(d.taxedTotalCA) + "</td></tr>" : "") +
-    "</table><div class=lines>" + (lines || "<i>orderSummary unavailable</i>") + "</div>" +
-    "<div class=caps><b>capabilities</b>" + caps + "</div><div class=foot>live from the Hive project · refreshes every 3s</div></div></body></html>";
+    "</table>" + receipt + "<div class=lines>" + (lines || "<i>orderSummary unavailable</i>") + "</div>" +
+    "<div class=caps><b>capabilities</b>" + caps + "<div>" + extras + "</div></div><div class=foot>live from the Hive project · refreshes every 3s</div></div></body></html>";
 }
 createServer(async (req, res) => {
   if (req.url === "/health") { res.writeHead(200); return res.end("ok"); }

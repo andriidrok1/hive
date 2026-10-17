@@ -1,4 +1,4 @@
-// Manual E2E: HIVE_PREVIEW_SITE=1 npx tsx server/test/runner/manual/preview-site.mts [edit|restore]
+// Manual E2E: HIVE_PREVIEW_SITE=1 npx tsx server/test/runner/manual/preview-site.mts [edit|restore|redeploy]
 // Creates (or reuses) the preview VM, syncs demo-app (optionally with a visible edit) and fetches the page.
 import { config as loadDotenv } from "dotenv";
 import { join } from "node:path";
@@ -15,11 +15,12 @@ const files = await readProjectFiles(join(repoRoot, "demo-app"));
 if (mode === "edit") files["src/format.ts"] = files["src/format.ts"]!.replace("`$${", "`USD ${");
 const t0 = Date.now();
 const url = await site.getUrl();
+if (mode === "redeploy") await site.redeploy();
 console.log(`url ${url} (${Date.now() - t0}ms)`, JSON.stringify(site.timings));
 site.sync(files);
 await site.flushNow();
 const t = Date.now();
 const res = await fetch(`${url}/api/preview.json`);
-const j = (await res.json()) as { summary?: { lines?: string[]; total?: number }; error?: string };
-console.log(`${mode}: HTTP ${res.status} in ${Date.now() - t}ms; total ${j.summary?.total}; lines ${JSON.stringify(j.summary?.lines)}; error ${j.error ?? "none"}`);
+const j = (await res.json()) as { summary?: { lines?: string[]; total?: number }; error?: string; receipt?: unknown; formatPercent?: unknown; negative?: unknown };
+console.log(`${mode}: HTTP ${res.status} in ${Date.now() - t}ms; total ${j.summary?.total}; lines ${JSON.stringify(j.summary?.lines)}; error ${j.error ?? "none"}; receipt ${JSON.stringify(j.receipt ?? null)}; formatPercent ${JSON.stringify(j.formatPercent ?? null)}; negative ${JSON.stringify(j.negative ?? null)}`);
 console.log("state", JSON.stringify(await site.getState()));
