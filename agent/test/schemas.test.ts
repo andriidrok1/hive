@@ -41,6 +41,14 @@ describe("TOOL_SCHEMAS", () => {
     }
   });
 
+  it("declare_intent check description explains the isolated scope", () => {
+    const t = TOOL_SCHEMAS.find((x) => x.type === "function" && x.function.name === "declare_intent") as unknown as { function: { parameters: { properties: { check: { description: string } } } } };
+    const d = t.function.parameters.properties.check.description;
+    expect(d).toContain("isolated test file");
+    expect(d).toContain("only the exports of the target file");
+    expect(d).toContain("no imports");
+  });
+
   it("declare_intent target requires file and symbol", () => {
     const t = TOOL_SCHEMAS.find((x) => x.type === "function" && x.function.name === "declare_intent");
     const target = (t as unknown as { function: { parameters: { properties: { target: { required: string[] } } } } }).function.parameters.properties.target;
@@ -54,6 +62,12 @@ describe("systemPrompt", () => {
     expect(p).toContain("agent-andrii");
     expect(p).toContain("andrii");
     for (const w of ["read_file", "declare_intent", "edit_region", "finish_intent", "ack_briefing", "requiresAck", "OLD_TEXT_NOT_FOUND", "run_tests"]) expect(p).toContain(w);
+    // check semantics: isolated file, inline fixtures, no imports or wrappers; invalid check -> re-declare, not code change
+    expect(p).toContain("check runs in an isolated test file");
+    expect(p).toContain("Only the exports of the target file are in scope");
+    expect(p).toContain("Define any input data inline");
+    expect(p).toContain("no imports, no describe/it wrappers");
+    expect(p).toContain("fix the check by re-declaring");
     expect(p.split(/\s+/).filter(Boolean).length).toBeLessThan(350);
   });
 

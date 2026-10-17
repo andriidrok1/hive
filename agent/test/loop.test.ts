@@ -204,7 +204,7 @@ describe("runAgent: control (test 5)", () => {
       if (tool === "list_files") {
         polls += 1;
         hive.control = "run";
-        return { briefings: [briefing({ id: "br_9", kind: "human_note", fromAgent: undefined, fromHuman: "a", summary: "stop, use cents", details: {} })] };
+        return { briefings: [briefing({ id: "br_9", kind: "human_note", fromAgent: undefined, fromHuman: "a", summary: "stop, use cents", requiresAck: false, details: {} })] };
       }
       return undefined;
     });
@@ -386,6 +386,71 @@ describe("runAgent: reasoning_effort fallback", () => {
     const res = await runAgent({ ...base, client: new FakeHive(), openai: ai.asOpenAI(), model: "gpt-fallback-b" });
     expect(res.status).toBe("error");
     expect(ai.requests).toHaveLength(1);
+  });
+});
+
+describe("runAgent: premature final message nudge", () => {
+  const red = { ok: false, passed: 18, failed: 2, failures: [{ name: "calculateTotal > applies promo", message: "expected 900 got 1000" }, { name: "formatPrice > cents", message: "x" }], durationMs: 5 };
+  const green = { ok: true, passed: 20, failed: 0, failures: [], durationMs: 5 };
+
+  it("final message while the last run_tests was red -> one nudge, then the model continues", async () => {
+    let runs = 0;
+    const hive = new FakeHive((tool) => {
+      if (tool === "run_tests") return { data: ++runs === 1 ? red : green };
+      return undefined;
+    });
+    const ai = new FakeOpenAI([
+      { tool: "run_tests", args: {} },
+      { text: "Done, all good." },
+      { tool: "edit_region", args: { intentId: "A1", path: "a.ts", oldText: "x", newText: "y" } },
+      { tool: "run_tests", args: {} },
+      { text: "Done for real." },
+    ]);
+    const res = await runAgent({ ...base, client: hive, openai: ai.asOpenAI() });
+    expect(res.status).toBe("done");
+    expect(res.finalMessage).toBe("Done for real.");
+    expect(hive.toolNames()).toEqual(["run_tests", "edit_region", "run_tests"]);
+    const nudge = ai.requests[2]!.body.messages.at(-1)!;
+    expect(nudge.role).toBe("user");
+    expect(nudge.content).toBe(
+      "Hive: tests are still red (2 failed: calculateTotal > applies promo, formatPrice > cents). Fix the cause, ask the other agent via ask_agent, or explain in your final message why it is outside your task.",
+    );
+    // the premature assistant answer stays in the transcript before the nudge
+    expect(ai.requests[2]!.body.messages.at(-2)).toMatchObject({ role: "assistant", content: "Done, all good." });
+  });
+
+  it("only one nudge per run: a second final message with red tests is accepted", async () => {
+    const hive = new FakeHive((tool) => (tool === "run_tests" ? { data: red } : undefined));
+    const ai = new FakeOpenAI([{ tool: "run_tests", args: {} }, { text: "giving up" }, { text: "still red, outside my task: the promo test belongs to agent-masha" }]);
+    const res = await runAgent({ ...base, client: hive, openai: ai.asOpenAI() });
+    expect(res.status).toBe("done");
+    expect(res.finalMessage).toContain("outside my task");
+    expect(ai.requests).toHaveLength(3);
+    expect(ai.requests[2]!.body.messages.filter((m) => m.role === "user")).toHaveLength(2);
+  });
+
+  it("final message with an unacked required briefing -> nudge names it; acked briefings do not count", async () => {
+    const hive = new FakeHive();
+    hive.queued = [briefing({ id: "br_3", requiresAck: true }), briefing({ id: "br_4", requiresAck: false })];
+    const ai = new FakeOpenAI([{ tool: "read_file", args: { path: "a.ts" } }, { text: "done" }, { tool: "ack_briefing", args: { briefingId: "br_3", response: "adapted" } }, { text: "done" }]);
+    const res = await runAgent({ ...base, client: hive, openai: ai.asOpenAI() });
+    expect(res.status).toBe("done");
+    expect(ai.requests[2]!.body.messages.at(-1)!.content).toBe("Hive: briefings unacked (br_3). Fix the cause, ask the other agent via ask_agent, or explain in your final message why it is outside your task.");
+    expect(hive.toolNames()).toEqual(["read_file", "ack_briefing"]);
+  });
+
+  it("both reasons combine, and green tests with nothing unacked never nudge", async () => {
+    const hive = new FakeHive((tool) => (tool === "run_tests" ? { data: red } : undefined));
+    hive.queued = [briefing({ id: "br_5" })];
+    const ai = new FakeOpenAI([{ tool: "run_tests", args: {} }, { text: "done" }, { text: "done" }]);
+    await runAgent({ ...base, client: hive, openai: ai.asOpenAI() });
+    expect(ai.requests[2]!.body.messages.at(-1)!.content).toMatch(/^Hive: tests are still red \(2 failed: .*\) \/ briefings unacked \(br_5\)\./);
+
+    const hive2 = new FakeHive((tool) => (tool === "run_tests" ? { data: green } : undefined));
+    const ai2 = new FakeOpenAI([{ tool: "run_tests", args: {} }, { text: "done" }]);
+    const res2 = await runAgent({ ...base, client: hive2, openai: ai2.asOpenAI() });
+    expect(res2.status).toBe("done");
+    expect(ai2.requests).toHaveLength(2);
   });
 });
 
