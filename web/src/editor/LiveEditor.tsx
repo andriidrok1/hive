@@ -122,19 +122,29 @@ export default function LiveEditor({ path, humanId, intents, symbols }: Props) {
   }, [ytext, humanId]);
 
   // Push intent ranges whenever intents, symbols or the document text change.
-  useEffect(() => {
-    const view = viewRef.current;
-    if (!view) return;
-    const apply = () => {
+  // Never dispatch synchronously from inside another update (Yjs observers fire mid-transaction),
+  // so recomputation is always deferred and debounced.
+  const latest = useRef({ intents, symbols });
+  latest.current = { intents, symbols };
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const schedule = () => {
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => {
       const v = viewRef.current;
       if (!v) return;
-      v.dispatch({ effects: setRanges.of(intentRanges(intents, v.state.doc.toString(), symbols)) });
-    };
-    apply();
+      const { intents: i, symbols: s } = latest.current;
+      v.dispatch({ effects: setRanges.of(intentRanges(i, v.state.doc.toString(), s)) });
+    }, 60);
+  };
+  useEffect(() => {
+    schedule();
     if (!ytext) return;
-    const onText = () => apply();
-    ytext.observe(onText);
-    return () => ytext.unobserve(onText);
+    ytext.observe(schedule);
+    return () => {
+      ytext.unobserve(schedule);
+      if (timer.current) clearTimeout(timer.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [intents, symbols, ytext]);
 
   if (!ytext) {
