@@ -14,6 +14,7 @@ import type {
   Snapshot,
   TestResult,
 } from "@hive/shared";
+import { applyEdits } from "../core/index.js";
 import type { CulpritFinder } from "./CulpritFinder.js";
 import { runId } from "./util.js";
 
@@ -24,10 +25,18 @@ export interface StoreLike {
   allFiles(): Record<string, string>;
   onChange(cb: (c: { path: string; rev: Rev }) => void): () => void;
 }
+/** Files of a green base plus a set of finished change sets; mirrors core's applyEdits result shape. */
+export type ViewResult = { ok: true; files: Record<string, string> } | { ok: false; path: string; index: number; intentId?: IntentId };
+
 export interface HistoryLike {
-  saveSnapshot(green: boolean): Snapshot;
+  /** `view` pins the snapshot to the tested view (rev + files) instead of the live store. */
+  saveSnapshot(green: boolean, view?: { rev: Rev; files: Record<string, string> }): Snapshot;
   lastGreen(): Snapshot | undefined;
   changeSetsSince(rev: Rev): ChangeSet[];
+  /** Intents that began but have not finished (their edits are excluded from views). Optional until core lands it. */
+  openIntents?(): ReadonlyArray<IntentId | { id: IntentId }>;
+  /** Base files plus the given finished change sets. Optional until core lands it (local applyEdits is used meanwhile). */
+  buildView?(base: Record<string, string>, sets: ChangeSet[], extraEdits?: ChangeSet["edits"]): ViewResult;
 }
 export interface IntentsLike {
   get(id: IntentId): Intent | undefined;
@@ -92,13 +101,35 @@ export class TestOrchestrator {
   private async handle(intentId: IntentId): Promise<void> {
     const { store, history, intents, runner, onEvent, mode } = this.deps;
     await this.waitForQuiet();
-    const rev = store.rev;
-    const files = store.allFiles();
     const intent = intents.get(intentId);
+
+    // The view under test: last green base plus every FINISHED change set since it. Other agents'
+    // in-progress edits stay out, so one agent's unfinished work cannot fail another's verification.
+    const base = history.lastGreen() ?? this.initial;
+    const sets = history.changeSetsSince(base.rev);
+    let rev = store.rev;
+    let files: Record<string, string>;
+    let where: string;
+    if (mode !== "hive") {
+      files = store.allFiles(); // no intents, no change sets: the live project is the only view
+      where = "live";
+    } else {
+      const view = history.buildView ? history.buildView(base.files, sets) : applyEdits(base.files, sets.flatMap((s) => s.edits));
+      if (view.ok) {
+        files = view.files;
+        rev = intent?.endRev ?? sets[sets.length - 1]?.endRev ?? store.rev;
+        const excluded = (history.openIntents?.() ?? []).map((o) => (typeof o === "string" ? o : o.id)).filter((id) => id !== intentId);
+        where = `view: ${sets.length} finished set${sets.length === 1 ? "" : "s"}, excluded in-progress: ${excluded.length > 0 ? excluded.join(", ") : "none"}`;
+      } else {
+        files = store.allFiles();
+        const failedId = "intentId" in view && view.intentId ? ` of ${view.intentId}` : "";
+        where = `fallback: live, view failed at ${view.path}#${view.index}${failedId}`;
+      }
+    }
 
     if (mode === "hive" && intent?.check && intent.action !== "delete") {
       const checkRun = runId("check");
-      onEvent({ type: "test_run_started", runId: checkRun, rev, reason: `check ${intentId}` });
+      onEvent({ type: "test_run_started", runId: checkRun, rev, reason: `check ${intentId} (${where})` });
       const checkResult = await this.safeRun(() =>
         runner.runTests({ ...files, [CHECK_TEST_PATH]: checkTestSource(intent, files[intent.target.file]) }, { filter: CHECK_TEST_NAME }),
       );
@@ -123,20 +154,21 @@ export class TestOrchestrator {
     }
 
     const suiteRun = runId("test");
-    onEvent({ type: "test_run_started", runId: suiteRun, rev, reason: `intent ${intentId} finished` });
+    onEvent({ type: "test_run_started", runId: suiteRun, rev, reason: `intent ${intentId} finished (${where})` });
     const result = await this.safeRun(() => runner.runTests(files));
     onEvent({ type: "test_run_finished", runId: suiteRun, rev, result });
 
     if (result.ok) {
-      history.saveSnapshot(true);
+      if (mode === "hive" && where.startsWith("view")) history.saveSnapshot(true, { rev, files });
+      else history.saveSnapshot(true);
       if (intent) intents.setStatus(intentId, "verified", { rev });
       return;
     }
 
     if (mode !== "hive") return; // naive / isolated: tests run, no culprit search, no briefings
 
-    const green = history.lastGreen() ?? this.initial;
-    const suspects = history.changeSetsSince(green.rev);
+    const green = base;
+    const suspects = sets;
     if (suspects.length === 0) {
       if (intent) {
         intents.setStatus(intentId, "failed", { rev });

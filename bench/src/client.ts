@@ -25,10 +25,12 @@ export class HiveClient {
   constructor(public readonly baseUrl: string, private readonly fetchImpl: FetchLike = (u, i) => fetch(u, i)) {}
 
   private async json<T>(method: string, path: string, body?: unknown): Promise<T> {
+    // Fastify rejects a JSON content-type with an empty body (FST_ERR_CTP_EMPTY_JSON_BODY),
+    // so every non-GET request carries at least `{}`.
+    const payload = method === "GET" ? undefined : JSON.stringify(body ?? {});
     const res = await this.fetchImpl(this.baseUrl + path, {
       method,
-      headers: { "content-type": "application/json" },
-      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+      ...(payload !== undefined ? { headers: { "content-type": "application/json" }, body: payload } : {}),
     });
     const text = await res.text();
     if (!res.ok) throw new HiveHttpError(res.status, path, text);

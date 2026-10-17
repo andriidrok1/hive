@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ResultRow } from "../src/feed.js";
 import { FeedCounters } from "../src/feed.js";
-import { summarize, summaryMarkdown, toCsv } from "../src/summary.js";
+import { summarize, summarizeScenarios, summaryMarkdown, toCsv } from "../src/summary.js";
 
 function row(over: Partial<ResultRow>): ResultRow {
   return {
@@ -55,8 +55,22 @@ describe("summarize", () => {
     const md = summaryMarkdown(rows, { startedAt: new Date(0), args: "--repeats 2" });
     expect(md).toContain("| hive | 3 | 67% |");
     expect(md).toContain("| isolated | 1 (1 errored) | 0% |");
-    expect(md).toContain("| s01-double-tax | 1/2 | 0/1 | 0/1 |");
+    expect(md).toContain("| s01-double-tax | hive | 1/2 | 27.0/0.0 | 2300 | 90.0 | 2.0 | 1.0 | 1/1 |");
+    expect(md).toContain("| c01-control | naive | 1/1 | 27.0/0.0 | 1200 | 60.0 | 2.0 | 0.0 | - |");
     expect(md).toContain("- s01-double-tax/isolated#1: timeout");
+  });
+
+  it("aggregates per scenario and variant over repeats", () => {
+    const per = summarizeScenarios(rows);
+    expect(per.map((p) => `${p.scenario}/${p.variant}`)).toEqual([
+      "s01-double-tax/hive",
+      "c01-control/hive",
+      "s01-double-tax/naive",
+      "c01-control/naive",
+      "s01-double-tax/isolated",
+    ]);
+    expect(per[0]).toMatchObject({ runs: 2, successes: 1, meanTokens: 2300, meanWallMs: 90_000, meanConflictsCaught: 1, culpritCorrect: "1/1" });
+    expect(per[2]).toMatchObject({ runs: 1, successes: 0, culpritCorrect: "0/1" });
   });
 
   it("writes CSV with a header, booleans, blanks for null and quoted errors", () => {

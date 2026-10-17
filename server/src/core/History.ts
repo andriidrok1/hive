@@ -1,5 +1,5 @@
 import { applyPatch, createPatch, parsePatch, type StructuredPatch } from "diff";
-import type { ChangeSet, Intent, IntentId, Rev, Snapshot } from "@hive/shared";
+import type { AgentId, ChangeSet, Intent, IntentId, Rev, Snapshot } from "@hive/shared";
 import { badArgs, lineDelta, type ProjectStore } from "./ProjectStore.js";
 
 export interface EditRecord {
@@ -97,6 +97,30 @@ export function applyEdits(
   return { ok: true, files: out };
 }
 
+/**
+ * The files an agent is judged on: `base` (normally the last green snapshot) + every finished
+ * change set in the given order + `extraEdits` (normally the agent's own in-progress edits).
+ * Pure; the inputs are not mutated.
+ */
+export function buildView(
+  base: Record<string, string>,
+  sets: ChangeSet[],
+  extraEdits?: ChangeSet["edits"],
+): { ok: true; files: Record<string, string> } | { ok: false; failedAt: { intentId?: IntentId; path: string; index: number } } {
+  let files: Record<string, string> = { ...base };
+  for (const set of sets) {
+    const res = applyEdits(files, set.edits);
+    if (!res.ok) return { ok: false, failedAt: { intentId: set.id, path: res.path, index: res.index } };
+    files = res.files;
+  }
+  if (extraEdits && extraEdits.length > 0) {
+    const res = applyEdits(files, extraEdits);
+    if (!res.ok) return { ok: false, failedAt: { path: res.path, index: res.index } };
+    files = res.files;
+  }
+  return { ok: true, files };
+}
+
 export class History {
   private readonly open = new Map<IntentId, OpenIntent>();
   private readonly finished = new Map<IntentId, ChangeSet>();
@@ -166,6 +190,22 @@ export class History {
     return cs;
   }
 
+  /** Edits recorded so far for an intent that has begun but not finished, in order; [] for unknown or finished intents. */
+  openEdits(intentId: IntentId): ChangeSet["edits"] {
+    const o = this.open.get(intentId);
+    return o ? o.edits.map((e) => ({ ...e })) : [];
+  }
+
+  /** Intents begun and not finished, in begin order; optionally only one agent's. */
+  openIntents(agentId?: AgentId): { intentId: IntentId; agentId: AgentId; files: string[] }[] {
+    const out: { intentId: IntentId; agentId: AgentId; files: string[] }[] = [];
+    for (const o of this.open.values()) {
+      if (agentId !== undefined && o.intent.agentId !== agentId) continue;
+      out.push({ intentId: o.intent.id, agentId: o.intent.agentId, files: [...o.files] });
+    }
+    return out;
+  }
+
   /** Finished change sets in finish order. */
   changeSets(): ChangeSet[] {
     return [...this.finishedOrder];
@@ -176,8 +216,11 @@ export class History {
     return this.finishedOrder.filter((cs) => cs.endRev > rev).sort((a, b) => a.endRev - b.endRev);
   }
 
-  saveSnapshot(green: boolean): Snapshot {
-    const snap: Snapshot = { rev: this.store.rev, files: this.store.allFiles(), green, at: Date.now() };
+  /** Stores the live store state, or `view` (the files the orchestrator actually tested) when given. */
+  saveSnapshot(green: boolean, view?: { rev: Rev; files: Record<string, string> }): Snapshot {
+    const snap: Snapshot = view
+      ? { rev: view.rev, files: { ...view.files }, green, at: Date.now() }
+      : { rev: this.store.rev, files: this.store.allFiles(), green, at: Date.now() };
     this.snapshots.push(snap);
     return snap;
   }
