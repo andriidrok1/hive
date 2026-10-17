@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
+import type { TestResult } from "@hive/shared";
 import { GOOD_INTENT, makeHive, register, type TestHive, waitFor } from "./helpers.js";
 
 let t: TestHive;
@@ -198,6 +199,35 @@ describe("api: state and tool envelope", () => {
     expect(cmd.data?.exitCode).toBe(0);
     expect(t.runner.commandCalls[0]?.timeoutSec).toBe(5);
     expect(Object.keys(t.runner.testCalls[0]?.files ?? {})).toContain("src/tax.ts");
+  });
+
+  it("a filter that matches no tests is not green: run_tests and POST /api/test return ok false with a note", async () => {
+    t = await makeHive();
+    register(t, "agent-andrii");
+    t.runner.result = { ok: true, passed: 0, failed: 0, failures: [], durationMs: 3 };
+    const res = await t.tool("agent-andrii", "run_tests", { filter: "nothing-here" });
+    expect(res.ok).toBe(true); // the tool call itself worked
+    const data = res.data as TestResult & { note?: string };
+    expect(data.ok).toBe(false);
+    expect(data.passed).toBe(0);
+    expect(data.note).toContain("filter 'nothing-here' matched no tests; run without filter or use a test-name regex.");
+    expect(data.failures.map((f) => f.name)).toEqual(["filter"]);
+    const finished = t.events("test_run_finished");
+    expect(finished).toHaveLength(1);
+    expect(finished[0]?.type === "test_run_finished" && finished[0].result.ok).toBe(false);
+
+    const api = await t.hive.built.app.inject({ method: "POST", url: "/api/test", payload: { filter: "nothing-here" } });
+    expect(api.statusCode).toBe(200);
+    expect(api.json()).toMatchObject({ ok: false, passed: 0, failed: 0 });
+    expect(api.json().failures[0].message).toContain("matched no tests");
+    expect(t.hive.ctx.deps.history.lastGreen()?.rev).toBe(0);
+
+    // without a filter the runner's verdict stands
+    const plain = await t.tool("agent-andrii", "run_tests", {});
+    expect((plain.data as TestResult).ok).toBe(true);
+    t.runner.result = { ok: true, passed: 2, failed: 0, failures: [], durationMs: 3 };
+    const matched = await t.tool("agent-andrii", "run_tests", { filter: "checkout" });
+    expect((matched.data as TestResult).ok).toBe(true);
   });
 
   it("create_file under an intent, then finish; POST /api/agents starts a loop and 409s on a repeat", async () => {
