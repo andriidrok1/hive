@@ -72,29 +72,33 @@ describe("AgentManager", () => {
     expect(resolveRun).toBeDefined();
   });
 
-  it("passes the budget to runAgent: 60 calls / 10 min by default, env overrides", async () => {
-    const seen: { maxToolCalls?: number; maxMs?: number }[] = [];
+  it("passes the budget to runAgent: 60 calls / 10 min / 600k tokens by default, env overrides", async () => {
+    const seen: { maxToolCalls?: number; maxMs?: number; maxTokens?: number }[] = [];
     const run = async (opts: AgentRunOptions): Promise<AgentRunResult> => {
-      seen.push({ maxToolCalls: opts.maxToolCalls, maxMs: opts.maxMs });
+      seen.push({ maxToolCalls: opts.maxToolCalls, maxMs: opts.maxMs, maxTokens: opts.maxTokens });
       return { status: "done", toolCalls: 0, tokensIn: 0, tokensOut: 0, ms: 0 };
     };
     t = await makeHive({ runAgent: run });
     expect(t.hive.agents.maxToolCalls).toBe(60);
     expect(t.hive.agents.maxMs).toBe(600_000);
+    expect(t.hive.agents.maxTokens).toBe(600_000);
     await t.hive.built.app.inject({ method: "POST", url: "/api/agents", payload: { agentId: "agent-a", humanId: "a", task: "t" } });
     await waitFor(() => seen.length === 1);
-    expect(seen[0]).toEqual({ maxToolCalls: 60, maxMs: 600_000 });
+    expect(seen[0]).toEqual({ maxToolCalls: 60, maxMs: 600_000, maxTokens: 600_000 });
     await t.close();
 
     process.env.HIVE_AGENT_MAX_TOOL_CALLS = "25";
     process.env.HIVE_AGENT_MAX_MS = "90000";
+    process.env.HIVE_AGENT_MAX_TOKENS = "1000000";
     try {
       t = await makeHive({ runAgent: run });
       expect(t.hive.agents.maxToolCalls).toBe(25);
       expect(t.hive.agents.maxMs).toBe(90_000);
+      expect(t.hive.agents.maxTokens).toBe(1_000_000);
     } finally {
       delete process.env.HIVE_AGENT_MAX_TOOL_CALLS;
       delete process.env.HIVE_AGENT_MAX_MS;
+      delete process.env.HIVE_AGENT_MAX_TOKENS;
     }
   });
 
