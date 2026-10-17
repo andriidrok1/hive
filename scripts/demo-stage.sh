@@ -7,7 +7,7 @@ set -e
 BASE=${HIVE_URL:-http://localhost:4317}
 MODE=${HIVE_MODE:-hive}
 
-ALEX_TASK='In src/order.ts add an exported function receipt(items, promo?) that returns a single string: the lines of orderSummary(items, promo) joined with "\n", with an extra first line "Items: N" where N is the total quantity. Add tests for it in test/order.test.ts (with and without a promo). You own the new function receipt and its tests; do not change orderSummary itself.'
+ALEX_TASK='In src/order.ts add two exported functions and tests for both in test/order.test.ts. (1) receipt(items, promo?) returns one string: the lines of orderSummary(items, promo) joined with "\n", with an extra first line "Items: N" where N is the total quantity. (2) receiptWidth(items, promo?) returns the length of the longest line of receipt(items, promo). Cover: empty cart, one item without promo, two items with a percent promo. You own the new functions receipt and receiptWidth and their tests; do not change orderSummary itself.'
 ANDRII_TASK='In src/order.ts add an exported helper discountLine(subtotalCents, promo?) that returns the string "Discount -$x.xx" for a promo (use applyDiscount and formatPrice) or null when there is no promo, and make orderSummary use it for its Discount line instead of formatting inline. Add tests for discountLine in test/order.test.ts. You own discountLine and orderSummary.'
 
 post() {
