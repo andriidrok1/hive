@@ -77,7 +77,7 @@ export class AgentManager implements AgentManagerLike {
     this.maxMs = opts.maxMs ?? envNumber("HIVE_AGENT_MAX_MS") ?? DEFAULT_MAX_MS;
   }
 
-  register(agentId: AgentId, humanId: HumanId): AgentRecord {
+  register(agentId: AgentId, humanId: HumanId, owns?: string[]): AgentRecord {
     let rec = this.agents.get(agentId);
     if (!rec) {
       rec = { agentId, humanId, status: "idle", control: "run" };
@@ -85,16 +85,17 @@ export class AgentManager implements AgentManagerLike {
     } else if (rec.humanId !== humanId) {
       rec.humanId = humanId;
     }
+    if (owns !== undefined) rec.owns = [...owns];
     return rec;
   }
 
   get(agentId: AgentId): AgentRecord | undefined {
     const rec = this.agents.get(agentId);
-    return rec ? { ...rec } : undefined;
+    return rec ? copyRecord(rec) : undefined;
   }
 
   list(): AgentRecord[] {
-    return [...this.agents.values()].map((r) => ({ ...r }));
+    return [...this.agents.values()].map(copyRecord);
   }
 
   controlOf(agentId: AgentId): AgentControl {
@@ -105,9 +106,9 @@ export class AgentManager implements AgentManagerLike {
     return this.running.has(agentId);
   }
 
-  start(input: { agentId: AgentId; humanId: HumanId; task: string }): { ok: true } | { ok: false; code: "ALREADY_RUNNING" } {
+  start(input: { agentId: AgentId; humanId: HumanId; task: string; owns?: string[] }): { ok: true } | { ok: false; code: "ALREADY_RUNNING" } {
     if (this.running.has(input.agentId)) return { ok: false, code: "ALREADY_RUNNING" };
-    const rec = this.register(input.agentId, input.humanId);
+    const rec = this.register(input.agentId, input.humanId, input.owns);
     rec.task = input.task;
     rec.control = "run";
     const run: Running = { stop: new AbortController(), interrupt: new AbortController(), promise: Promise.resolve(), step: 0 };
@@ -229,6 +230,12 @@ export class AgentManager implements AgentManagerLike {
     if (step !== undefined) body.step = step;
     this.opts.emitter.emit(body);
   }
+}
+
+function copyRecord(rec: AgentRecord): AgentRecord {
+  const out: AgentRecord = { ...rec };
+  if (rec.owns) out.owns = [...rec.owns];
+  return out;
 }
 
 function num(v: unknown): number {
