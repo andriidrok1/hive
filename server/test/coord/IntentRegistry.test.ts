@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { HiveMode, IntentInput } from "@hive/shared";
 import { BriefingQueue } from "../../src/coord/BriefingQueue.js";
 import { CallGraph } from "../../src/coord/CallGraph.js";
@@ -11,7 +11,7 @@ const A = "agent-andrii";
 const B = "agent-boris";
 const M = "agent-masha";
 
-function setup(opts: { conflict?: boolean | ((user: string) => boolean); mode?: HiveMode; files?: Record<string, string> } = {}) {
+function setup(opts: { conflict?: boolean | ((user: string) => boolean); mode?: HiveMode; files?: Record<string, string>; reservationMs?: number } = {}) {
   const sink = eventSink();
   const graph = new CallGraph();
   graph.update(opts.files ?? { "src/checkout.ts": CHECKOUT_TS, "src/report.ts": REPORT_TS });
@@ -22,7 +22,7 @@ function setup(opts: { conflict?: boolean | ((user: string) => boolean); mode?: 
     const c = typeof opts.conflict === "function" ? opts.conflict(user) : !!opts.conflict;
     return { conflict: c, with: [], reason: c ? "promises contradict" : "" };
   });
-  const intents = new IntentRegistry({ llm, graph, reads, briefings, onEvent: sink.onEvent, mode: opts.mode ?? "hive" });
+  const intents = new IntentRegistry({ llm, graph, reads, briefings, onEvent: sink.onEvent, mode: opts.mode ?? "hive", ...(opts.reservationMs !== undefined ? { reservationMs: opts.reservationMs } : {}) });
   return { sink, graph, reads, briefings, llm, intents };
 }
 
@@ -138,35 +138,93 @@ describe("IntentRegistry", () => {
     expect((await reg.declare(A, "andrii", calc(), 2)).status).toBe("approved");
   });
 
-  it("8c. failed intents still block: same_target and contradiction checks consider them", async () => {
-    // same target: A1 failed on calculateTotal, M wants calculateTotal -> conflict until a human cancels A1
-    const { intents, briefings } = setup({ conflict: true });
+  it("8c. failed intents do not block same_target but remain standing promises for the contradiction check", async () => {
+    // same target: A1 failed on calculateTotal; M may take calculateTotal (the LLM is still consulted, says no)
+    const { intents, llm } = setup({ conflict: false });
     await intents.declare(A, "andrii", calc(), 1);
     intents.setStatus("A1", "in_progress");
     intents.setStatus("A1", "failed");
     const m = await intents.declare(M, "masha", calc({ what: "round the total", output: "returns the subtotal rounded to whole cents" }), 2);
-    expect(m.status).toBe("conflict");
-    expect(m.conflicts).toEqual([{ intentId: "A1", kind: "same_target", reason: expect.stringContaining("A1") }]);
-    expect(briefings.takeUndelivered(A).map((b) => b.kind)).toEqual(["intent_conflict"]);
-    intents.resolveConflict("andrii", "M1", "A1");
-    expect(intents.get("M1")?.status).toBe("approved");
+    expect(m.status).toBe("approved");
+    expect(m.conflicts).toEqual([]);
+    expect(llm.calls).toHaveLength(1);
+    expect(llm.calls[0]?.user).toContain('"status": "failed"');
 
-    // contradiction: A1 failed on calculateTotal (now includes tax); M declares on a caller -> LLM is asked, conflict
+    // contradiction: A1 failed on calculateTotal (now includes tax); M declares on a caller -> conflict that lazy
+    // reconciliation does NOT clear (failed is standing); cancelling A1 clears it
     const s2 = setup({ conflict: true });
     await s2.intents.declare(A, "andrii", calc(), 1);
     s2.intents.setStatus("A1", "failed");
     const m2 = await s2.intents.declare(M, "masha", tax({ what: "add tax on top of calculateTotal", output: "returns calculateTotal() plus state tax" }), 2);
-    expect(s2.llm.calls).toHaveLength(1);
-    expect(s2.llm.calls[0]?.user).toContain('"status": "failed"');
     expect(m2.status).toBe("conflict");
     expect(m2.conflicts).toEqual([{ intentId: "A1", kind: "contradiction", reason: "promises contradict" }]);
+    expect(s2.intents.get("M1")?.status).toBe("conflict");
+    expect(s2.intents.list().find((i) => i.id === "M1")?.status).toBe("conflict");
+    expect(s2.briefings.takeUndelivered(A).map((b) => b.kind)).toEqual(["intent_conflict"]);
 
-    // the failed owner can still re-declare on its own target (no self-conflict), and cancelled never blocks
+    // the failed owner can still re-declare on its own target (no self-conflict)
     const a2 = await s2.intents.declare(A, "andrii", calc(), 3);
     expect(a2.status).toBe("approved");
     s2.intents.setStatus("A1", "cancelled");
-    s2.intents.setStatus("A2", "cancelled");
     expect(s2.intents.get("M1")?.status).toBe("approved");
+  });
+
+  it("8d. reservation: an approved intent with no edits stops blocking after reservationMs; in_progress blocks regardless", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-10-17T12:00:00Z"));
+      // declare after the window: approved outright
+      const { intents, briefings, sink } = setup();
+      await intents.declare(A, "andrii", calc(), 1);
+      vi.advanceTimersByTime(45_001);
+      const b = await intents.declare(B, "boris", calc({ what: "round the total", output: "returns the subtotal rounded to whole cents" }), 2);
+      expect(b.status).toBe("approved");
+      expect(briefings.all()).toEqual([]);
+      expect(intents.isBlocking(intents.get("A1")!)).toBe(false);
+
+      // declare inside the window: conflict; then the reservation expires and get()/list() re-approve lazily
+      const s2 = setup({ reservationMs: 10_000 });
+      await s2.intents.declare(A, "andrii", calc(), 1);
+      vi.advanceTimersByTime(5_000);
+      const b2 = await s2.intents.declare(B, "boris", calc({ what: "round the total", output: "returns the subtotal rounded to whole cents" }), 2);
+      expect(b2.status).toBe("conflict");
+      s2.briefings.takeUndelivered(B);
+      s2.sink.events.length = 0;
+      vi.advanceTimersByTime(4_999);
+      expect(s2.intents.get("B1")?.status).toBe("conflict");
+      expect(s2.sink.events).toEqual([]);
+      vi.advanceTimersByTime(2);
+      expect(s2.intents.get("B1")?.status).toBe("approved");
+      expect(s2.sink.ofType("intent_status")).toEqual([{ type: "intent_status", intentId: "B1", status: "approved" }]);
+      const toB = s2.briefings.takeUndelivered(B);
+      expect(toB.map((x) => [x.kind, x.requiresAck])).toEqual([["intent_conflict", false]]);
+      expect(toB[0]?.summary).toMatch(/approved now/);
+      expect(s2.intents.canEdit(B, "B1")).toEqual({ ok: true });
+      // idempotent: a second get()/list() emits nothing more
+      s2.intents.list();
+      s2.intents.reconcile();
+      expect(s2.sink.ofType("intent_status")).toHaveLength(1);
+
+      // in_progress keeps blocking long after the window; a later declare still conflicts
+      const s3 = setup({ reservationMs: 1_000 });
+      await s3.intents.declare(A, "andrii", calc(), 1);
+      s3.intents.setStatus("A1", "in_progress");
+      vi.advanceTimersByTime(60_000);
+      const b3 = await s3.intents.declare(B, "boris", calc({ what: "round the total", output: "returns the subtotal rounded to whole cents" }), 2);
+      expect(b3.status).toBe("conflict");
+      vi.advanceTimersByTime(60_000);
+      expect(s3.intents.get("B1")?.status).toBe("conflict");
+      s3.intents.setStatus("A1", "done");
+      expect(s3.intents.get("B1")?.status).toBe("approved");
+
+      // a re-approval starts a fresh reservation for the re-approved intent
+      expect(s3.intents.isBlocking(s3.intents.get("B1")!)).toBe(true);
+      vi.advanceTimersByTime(1_001);
+      expect(s3.intents.isBlocking(s3.intents.get("B1")!)).toBe(false);
+      void sink;
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("10. dependents: a reader of the symbol gets intent_declared with requiresAck", async () => {
@@ -251,7 +309,12 @@ describe("IntentRegistry", () => {
     expect(briefings.takeUndelivered(B)).toEqual([]);
     expect(sink.ofType("intent_status")).toEqual([{ type: "intent_status", intentId: "A1", status: "cancelled" }]);
 
+    // a contradiction is about promised behavior: C1 going done (its promise is now in the code) does not clear it
     intents.setStatus("C1", "done");
+    expect(intents.get("B1")?.status).toBe("conflict");
+    expect(briefings.takeUndelivered(B)).toEqual([]);
+    // cancelling the contradicting intent (or a human resolving) does
+    intents.setStatus("C1", "cancelled");
     expect(intents.get("B1")?.status).toBe("approved");
     expect(briefings.takeUndelivered(B).map((x) => [x.kind, x.requiresAck])).toEqual([["intent_conflict", false]]);
   });

@@ -5,7 +5,7 @@ export type { ChangeWatcherDeps, SymbolChange } from "./ChangeWatcher.js";
 export { Mailbox, MAX_EXCHANGES } from "./Mailbox.js";
 export { CallGraph } from "./CallGraph.js";
 export { BriefingQueue, clip } from "./BriefingQueue.js";
-export { IntentRegistry, validateIntentInput, isVagueOutput } from "./IntentRegistry.js";
+export { IntentRegistry, validateIntentInput, isVagueOutput, DEFAULT_RESERVATION_MS } from "./IntentRegistry.js";
 export type { IntentRegistryDeps } from "./IntentRegistry.js";
 export { OpenAILLM, FakeLLM, noopLLM, CHECK_PROMPTS } from "./llm.js";
 export type { OpenAILLMOptions, LLMTiming } from "./llm.js";
