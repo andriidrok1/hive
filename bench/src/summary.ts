@@ -18,6 +18,7 @@ export interface VariantSummary {
   runs: number;
   completed: number; // runs without an error
   successRate: number; // successes / runs
+  acceptanceRate: number; // acceptanceOk / runs: acceptance tests alone green
   meanTokens: number; // in + out, over completed runs
   meanWallMs: number;
   meanToolCalls: number;
@@ -44,6 +45,7 @@ export function summarize(rows: ResultRow[]): VariantSummary[] {
       runs: vs.length,
       completed: done.length,
       successRate: vs.length ? vs.filter((r) => r.success).length / vs.length : 0,
+      acceptanceRate: vs.length ? vs.filter((r) => r.acceptanceOk).length / vs.length : 0,
       meanTokens: mean(done.map((r) => r.tokensIn + r.tokensOut)),
       meanWallMs: mean(done.map((r) => r.wallMs)),
       meanToolCalls: mean(done.map((r) => r.toolCalls)),
@@ -63,6 +65,7 @@ export interface ScenarioSummary {
   conflict: boolean;
   runs: number;
   successes: number;
+  acceptanceSuccesses: number;
   meanPassed: number;
   meanFailed: number;
   meanTokens: number;
@@ -85,6 +88,7 @@ export function summarizeScenarios(rows: ResultRow[]): ScenarioSummary[] {
       conflict: rs[0]!.conflict,
       runs: rs.length,
       successes: rs.filter((r) => r.success).length,
+      acceptanceSuccesses: rs.filter((r) => r.acceptanceOk).length,
       meanPassed: mean(rs.map((r) => r.passed)),
       meanFailed: mean(rs.map((r) => r.failed)),
       meanTokens: mean(rs.map((r) => r.tokensIn + r.tokensOut)),
@@ -104,20 +108,21 @@ export function summaryMarkdown(rows: ResultRow[], meta: { startedAt: Date; args
   const out: string[] = [];
   out.push(`# Bench summary`, ``, `${rows.length} runs, ${meta.startedAt.toISOString()}${meta.args ? `, args: \`${meta.args}\`` : ""}`, ``);
   out.push(`## Per variant`, ``);
-  out.push(`| variant | runs | success | mean tokens | mean wall s | mean tool calls | mean briefings | conflicts caught | culprit searches | culprit correct | false alarms (controls) |`);
-  out.push(`|---|---|---|---|---|---|---|---|---|---|---|`);
+  out.push(`"success" = full suite plus acceptance tests green; "acceptance-only" = the acceptance file alone green on the same files.`, ``);
+  out.push(`| variant | runs | success | acceptance-only success | mean tokens | mean wall s | mean tool calls | mean briefings | conflicts caught | culprit searches | culprit correct | false alarms (controls) |`);
+  out.push(`|---|---|---|---|---|---|---|---|---|---|---|---|`);
   for (const s of sums) {
     out.push(
-      `| ${s.variant} | ${s.runs}${s.completed < s.runs ? ` (${s.runs - s.completed} errored)` : ""} | ${pct(s.successRate)} | ${n0(s.meanTokens)} | ${(s.meanWallMs / 1000).toFixed(1)} | ${s.meanToolCalls.toFixed(1)} | ${s.meanBriefings.toFixed(1)} | ${pct(s.conflictsCaughtRate)} | ${s.culpritSearches} | ${s.culpritCorrectRate === null ? "n/a" : pct(s.culpritCorrectRate)} | ${s.falseAlarms}/${s.controlRuns} |`,
+      `| ${s.variant} | ${s.runs}${s.completed < s.runs ? ` (${s.runs - s.completed} errored)` : ""} | ${pct(s.successRate)} | ${pct(s.acceptanceRate)} | ${n0(s.meanTokens)} | ${(s.meanWallMs / 1000).toFixed(1)} | ${s.meanToolCalls.toFixed(1)} | ${s.meanBriefings.toFixed(1)} | ${pct(s.conflictsCaughtRate)} | ${s.culpritSearches} | ${s.culpritCorrectRate === null ? "n/a" : pct(s.culpritCorrectRate)} | ${s.falseAlarms}/${s.controlRuns} |`,
     );
   }
   out.push(``, `## Per scenario`, ``);
   out.push(`One row per scenario and variant, means over repeats.`, ``);
-  out.push(`| scenario | variant | success | passed/failed | tokens | wall s | briefings | conflicts caught | culprit correct |`);
-  out.push(`|---|---|---|---|---|---|---|---|---|`);
+  out.push(`| scenario | variant | success | acceptance-only success | passed/failed | tokens | wall s | briefings | conflicts caught | culprit correct |`);
+  out.push(`|---|---|---|---|---|---|---|---|---|---|`);
   for (const s of summarizeScenarios(rows)) {
     out.push(
-      `| ${s.scenario} | ${s.variant} | ${s.successes}/${s.runs} | ${s.meanPassed.toFixed(1)}/${s.meanFailed.toFixed(1)} | ${n0(s.meanTokens)} | ${(s.meanWallMs / 1000).toFixed(1)} | ${s.meanBriefings.toFixed(1)} | ${s.meanConflictsCaught.toFixed(1)} | ${s.culpritCorrect} |`,
+      `| ${s.scenario} | ${s.variant} | ${s.successes}/${s.runs} | ${s.acceptanceSuccesses}/${s.runs} | ${s.meanPassed.toFixed(1)}/${s.meanFailed.toFixed(1)} | ${n0(s.meanTokens)} | ${(s.meanWallMs / 1000).toFixed(1)} | ${s.meanBriefings.toFixed(1)} | ${s.meanConflictsCaught.toFixed(1)} | ${s.culpritCorrect} |`,
     );
   }
   const errors = rows.filter((r) => r.error);

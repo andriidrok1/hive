@@ -12,6 +12,9 @@ function row(over: Partial<ResultRow>): ResultRow {
     success: true,
     passed: 27,
     failed: 0,
+    acceptancePassed: 3,
+    acceptanceFailed: 0,
+    acceptanceOk: true,
     toolCalls: 10,
     llmCalls: 12,
     tokensIn: 1000,
@@ -32,17 +35,19 @@ function row(over: Partial<ResultRow>): ResultRow {
 describe("summarize", () => {
   const rows: ResultRow[] = [
     row({}),
-    row({ repeat: 2, success: false, tokensIn: 3000, tokensOut: 400, wallMs: 120_000, culpritSearches: 1, culpritCorrect: true }),
+    row({ repeat: 2, success: false, acceptanceOk: true, tokensIn: 3000, tokensOut: 400, wallMs: 120_000, culpritSearches: 1, culpritCorrect: true }),
     row({ scenario: "c01-control", conflict: false, conflictsCaught: 1 }), // false alarm
-    row({ variant: "naive", success: false, briefingsSent: 0, conflictsCaught: 0, culpritSearches: 1, culpritCorrect: false }),
+    row({ variant: "naive", success: false, acceptanceOk: false, acceptancePassed: 1, acceptanceFailed: 2, briefingsSent: 0, conflictsCaught: 0, culpritSearches: 1, culpritCorrect: false }),
     row({ variant: "naive", scenario: "c01-control", conflict: false, conflictsCaught: 0 }),
-    row({ variant: "isolated", error: "timeout", success: false, tokensIn: 0, tokensOut: 0, wallMs: 0 }),
+    row({ variant: "isolated", error: "timeout", success: false, acceptanceOk: false, tokensIn: 0, tokensOut: 0, wallMs: 0 }),
   ];
 
   it("computes per-variant rates and means over completed runs", () => {
     const [hive, naive, isolated] = summarize(rows);
     expect(hive).toMatchObject({ variant: "hive", runs: 3, completed: 3, falseAlarms: 1, controlRuns: 1, culpritSearches: 1 });
     expect(hive!.successRate).toBeCloseTo(2 / 3);
+    expect(hive!.acceptanceRate).toBe(1); // the failed repeat still passed the acceptance tests alone
+    expect(naive!.acceptanceRate).toBe(0.5);
     expect(hive!.meanTokens).toBeCloseTo((1200 + 3400 + 1200) / 3);
     expect(hive!.meanWallMs).toBeCloseTo((60_000 + 120_000 + 60_000) / 3);
     expect(hive!.conflictsCaughtRate).toBe(1);
@@ -53,10 +58,11 @@ describe("summarize", () => {
 
   it("renders markdown with one row per variant and per scenario", () => {
     const md = summaryMarkdown(rows, { startedAt: new Date(0), args: "--repeats 2" });
-    expect(md).toContain("| hive | 3 | 67% |");
-    expect(md).toContain("| isolated | 1 (1 errored) | 0% |");
-    expect(md).toContain("| s01-double-tax | hive | 1/2 | 27.0/0.0 | 2300 | 90.0 | 2.0 | 1.0 | 1/1 |");
-    expect(md).toContain("| c01-control | naive | 1/1 | 27.0/0.0 | 1200 | 60.0 | 2.0 | 0.0 | - |");
+    expect(md).toContain("| hive | 3 | 67% | 100% |");
+    expect(md).toContain("| naive | 2 | 50% | 50% |");
+    expect(md).toContain("| isolated | 1 (1 errored) | 0% | 0% |");
+    expect(md).toContain("| s01-double-tax | hive | 1/2 | 2/2 | 27.0/0.0 | 2300 | 90.0 | 2.0 | 1.0 | 1/1 |");
+    expect(md).toContain("| c01-control | naive | 1/1 | 1/1 | 27.0/0.0 | 1200 | 60.0 | 2.0 | 0.0 | - |");
     expect(md).toContain("- s01-double-tax/isolated#1: timeout");
   });
 
@@ -69,15 +75,15 @@ describe("summarize", () => {
       "c01-control/naive",
       "s01-double-tax/isolated",
     ]);
-    expect(per[0]).toMatchObject({ runs: 2, successes: 1, meanTokens: 2300, meanWallMs: 90_000, meanConflictsCaught: 1, culpritCorrect: "1/1" });
+    expect(per[0]).toMatchObject({ runs: 2, successes: 1, acceptanceSuccesses: 2, meanTokens: 2300, meanWallMs: 90_000, meanConflictsCaught: 1, culpritCorrect: "1/1" });
     expect(per[2]).toMatchObject({ runs: 1, successes: 0, culpritCorrect: "0/1" });
   });
 
   it("writes CSV with a header, booleans, blanks for null and quoted errors", () => {
     const csv = toCsv([row({ error: 'boom, "quoted"', culpritCorrect: null, mergeOk: false })]);
     const [header, line] = csv.trim().split("\n");
-    expect(header!.startsWith("scenario,variant,repeat,conflict,success,passed,failed,toolCalls")).toBe(true);
-    expect(line).toBe('s01-double-tax,hive,1,true,true,27,0,10,12,1000,200,60000,2,1,1,0,,false,true,"boom, ""quoted"""');
+    expect(header!.startsWith("scenario,variant,repeat,conflict,success,passed,failed,acceptancePassed,acceptanceFailed,acceptanceOk,toolCalls")).toBe(true);
+    expect(line).toBe('s01-double-tax,hive,1,true,true,27,0,3,0,true,10,12,1000,200,60000,2,1,1,0,,false,true,"boom, ""quoted"""');
   });
 });
 

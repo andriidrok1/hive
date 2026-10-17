@@ -99,6 +99,16 @@ export function readExtraTests(scenario: Scenario, dir = scenariosDir): string {
   return readFileSync(extraTestsSourcePath(scenario, dir), "utf8");
 }
 
+/**
+ * vitest `-t` pattern that selects only the acceptance tests: the first describe name in the extra tests file
+ * (regex-escaped), falling back to "<sNN> acceptance".
+ */
+export function acceptanceFilter(scenario: Scenario, dir = scenariosDir): string {
+  const m = /describe\(\s*"([^"]+)"/.exec(readExtraTests(scenario, dir));
+  const name = m?.[1] ?? `${scenario.id.slice(0, 3)} acceptance`;
+  return name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 /** Folder with a.patch / b.patch / combined.patch, or null if this scenario has no verified reference yet. */
 export function referenceFolder(scenario: Scenario, dir = referenceDir): string | null {
   const folder = join(dir, scenario.id);
