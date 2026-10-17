@@ -11,7 +11,7 @@ export type { LocalRunnerOptions } from "./LocalRunner.js";
 export { FreestyleRunner, DEFAULT_PROJECT_DIR } from "./FreestyleRunner.js";
 export type { FreestyleRunnerOptions, VmTimings } from "./FreestyleRunner.js";
 export { CulpritFinder, MAX_SUSPECTS, MAX_PAIR_SUSPECTS } from "./CulpritFinder.js";
-export { TestOrchestrator, CHECK_TEST_PATH, checkTestSource } from "./TestOrchestrator.js";
+export { TestOrchestrator, CHECK_TEST_PATH, checkTestSource, exportedValueNames } from "./TestOrchestrator.js";
 export type { TestOrchestratorDeps, StoreLike, HistoryLike, IntentsLike, BriefingsLike, ReadsLike, GraphLike } from "./TestOrchestrator.js";
 export { prepareBaseSnapshot, readBaseSnapshotRecord, writeBaseSnapshotRecord, readProjectFiles, baseSnapshotPath, BASE_SNAPSHOT_FILE } from "./prepare.js";
 export type { PrepareOptions, PrepareTimings, BaseSnapshotRecord } from "./prepare.js";
