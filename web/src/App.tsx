@@ -121,9 +121,16 @@ export function App({ mockStepMs }: { mockStepMs?: number } = {}) {
                     <Plus />
                     New agent
                   </Button>
-                  <Button variant="outline" size="sm" className="ml-1.5" title="Start agent-alex and agent-nika with the demo tasks" onClick={() => void spawnDemoAgents()}>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="ml-1.5"
+                    title="Spawn demo agents: agent-alex now, agent-nika 3 s later"
+                    aria-label="Spawn demo agents"
+                    onClick={() => void spawnDemoAgents()}
+                  >
                     <Users />
-                    Spawn demo agents
+                    Spawn demo
                   </Button>
                 </TabsList>
 
