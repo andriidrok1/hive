@@ -4,7 +4,7 @@ import type { FeedEventBody, LLM } from "@hive/shared";
 export const CHECK_PROMPTS = {
   contradiction: "You check if promised behaviors contradict. Answer JSON {conflict: boolean, with: string[], reason: string}.",
   meaning:
-    "You summarize one code change for other engineers who depend on this code. One line, at most 160 characters, plain text, no markdown. Answer JSON {meaning: string}.",
+    "You summarize one code change for other engineers who depend on this code. meaning: one line, at most 160 characters, plain text, no markdown. behaviorChanged: false when callers would observe no difference (renamed locals, formatting, shorthand, comments, equivalent refactor), true when inputs, outputs, side effects or error behavior differ. Answer JSON {meaning: string, behaviorChanged: boolean}.",
 } as const;
 
 export type LLMTiming = { purpose: string; model: string; ms: number; tokensIn: number; tokensOut: number };
@@ -125,6 +125,6 @@ export class FakeLLM implements LLM {
 export function noopLLM(): FakeLLM {
   return new FakeLLM((system) => {
     if (system === CHECK_PROMPTS.contradiction) return { conflict: false, with: [], reason: "no LLM configured" };
-    return { meaning: "" };
+    return { meaning: "", behaviorChanged: true }; // without a model, assume every edit matters
   });
 }

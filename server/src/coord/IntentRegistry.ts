@@ -27,7 +27,10 @@ export interface IntentRegistryDeps {
 }
 
 const ACTIVE: readonly IntentStatus[] = ["approved", "in_progress"];
-const PROMISING: readonly IntentStatus[] = ["approved", "in_progress", "done", "verified"];
+// `failed` counts for conflict checks: its edits are already in the project, so its promise is a
+// standing (broken) contract until a human cancels it or the owner re-declares.
+const BLOCKING: readonly IntentStatus[] = ["approved", "in_progress", "failed"];
+const PROMISING: readonly IntentStatus[] = ["approved", "in_progress", "done", "verified", "failed"];
 const RELEASING: readonly IntentStatus[] = ["done", "verified", "cancelled", "failed"];
 const VAGUE_WORDS = new Set(["works", "work", "working", "done", "fixed", "fix", "updated", "update", "changed", "improved", "better", "ok", "okay", "good", "correct", "correctly"]);
 const FILLER = new Set(["it", "is", "the", "a", "an", "and", "now", "this", "that", "code", "function", "should", "will", "be", "all", "everything", "properly", "as", "expected"]);
@@ -142,7 +145,7 @@ export class IntentRegistry {
 
     // 3. same target
     for (const o of others) {
-      if (!ACTIVE.includes(o.status)) continue;
+      if (!BLOCKING.includes(o.status)) continue;
       if (o.target.file === intent.target.file && o.target.symbol === intent.target.symbol) {
         conflicts.push({ intentId: o.id, kind: "same_target", reason: `${o.agentId} is already changing ${o.target.symbol} in ${o.target.file} (${o.id}: ${o.what})` });
       }
@@ -284,7 +287,7 @@ export class IntentRegistry {
   private conflictStillActive(c: IntentConflict): boolean {
     const other = this.intents.get(c.intentId);
     if (!other) return false;
-    return ACTIVE.includes(other.status) || other.status === "conflict";
+    return BLOCKING.includes(other.status) || other.status === "conflict";
   }
 
   /** `resolved` left the active set: intents in `conflict` only because of it become approved. */

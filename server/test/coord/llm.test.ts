@@ -79,6 +79,6 @@ describe("FakeLLM", () => {
     expect(await llm.json("s", "u", "{echo}")).toEqual({ echo: "s|u" });
     expect(llm.calls).toEqual([{ system: "s", user: "u", shapeHint: "{echo}" }]);
     expect(await noopLLM().json(CHECK_PROMPTS.contradiction, "x", "")).toMatchObject({ conflict: false });
-    expect(await noopLLM().json(CHECK_PROMPTS.meaning, "x", "")).toEqual({ meaning: "" });
+    expect(await noopLLM().json(CHECK_PROMPTS.meaning, "x", "")).toEqual({ meaning: "", behaviorChanged: true });
   });
 });

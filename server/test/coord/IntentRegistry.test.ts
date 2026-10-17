@@ -138,6 +138,37 @@ describe("IntentRegistry", () => {
     expect((await reg.declare(A, "andrii", calc(), 2)).status).toBe("approved");
   });
 
+  it("8c. failed intents still block: same_target and contradiction checks consider them", async () => {
+    // same target: A1 failed on calculateTotal, M wants calculateTotal -> conflict until a human cancels A1
+    const { intents, briefings } = setup({ conflict: true });
+    await intents.declare(A, "andrii", calc(), 1);
+    intents.setStatus("A1", "in_progress");
+    intents.setStatus("A1", "failed");
+    const m = await intents.declare(M, "masha", calc({ what: "round the total", output: "returns the subtotal rounded to whole cents" }), 2);
+    expect(m.status).toBe("conflict");
+    expect(m.conflicts).toEqual([{ intentId: "A1", kind: "same_target", reason: expect.stringContaining("A1") }]);
+    expect(briefings.takeUndelivered(A).map((b) => b.kind)).toEqual(["intent_conflict"]);
+    intents.resolveConflict("andrii", "M1", "A1");
+    expect(intents.get("M1")?.status).toBe("approved");
+
+    // contradiction: A1 failed on calculateTotal (now includes tax); M declares on a caller -> LLM is asked, conflict
+    const s2 = setup({ conflict: true });
+    await s2.intents.declare(A, "andrii", calc(), 1);
+    s2.intents.setStatus("A1", "failed");
+    const m2 = await s2.intents.declare(M, "masha", tax({ what: "add tax on top of calculateTotal", output: "returns calculateTotal() plus state tax" }), 2);
+    expect(s2.llm.calls).toHaveLength(1);
+    expect(s2.llm.calls[0]?.user).toContain('"status": "failed"');
+    expect(m2.status).toBe("conflict");
+    expect(m2.conflicts).toEqual([{ intentId: "A1", kind: "contradiction", reason: "promises contradict" }]);
+
+    // the failed owner can still re-declare on its own target (no self-conflict), and cancelled never blocks
+    const a2 = await s2.intents.declare(A, "andrii", calc(), 3);
+    expect(a2.status).toBe("approved");
+    s2.intents.setStatus("A1", "cancelled");
+    s2.intents.setStatus("A2", "cancelled");
+    expect(s2.intents.get("M1")?.status).toBe("approved");
+  });
+
   it("10. dependents: a reader of the symbol gets intent_declared with requiresAck", async () => {
     const { intents, reads, briefings } = setup();
     reads.record(B, "src/checkout.ts", 2, ["calculateTotal", "applyDiscount"]);

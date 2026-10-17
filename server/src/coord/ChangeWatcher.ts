@@ -24,6 +24,8 @@ export interface SymbolChange {
 }
 
 const ACTIVE: readonly IntentStatus[] = ["approved", "in_progress"];
+/** Repeated edits of the same symbol by the same actor inside this window update one pending briefing. */
+export const COALESCE_MS = 3000;
 
 function tokens(s: string): Set<string> {
   return new Set(s.split(/[^A-Za-z0-9_]+/).filter((t) => t.length > 1));
@@ -129,29 +131,37 @@ export class ChangeWatcher {
     const intentOwner = change.intentId ? this.deps.intents.list().find((i) => i.id === change.intentId)?.agentId : undefined;
     if (intentOwner) excluded.add(intentOwner);
 
-    const diff = this.diffFor(change);
-    const meaning = await this.meaningOf(change, changes, diff);
+    const relevant = changes.filter((c) => c.kind !== "added"); // nobody depends on a symbol that did not exist
+    if (relevant.length === 0) return;
 
-    for (const c of changes) {
-      if (c.kind === "added") continue; // nobody depends on a symbol that did not exist
+    const diff = this.diffFor(change);
+    const { meaning, behaviorChanged } = await this.meaningOf(change, changes, diff);
+
+    for (const c of relevant) {
+      // Body-only edits are briefed only when the model says callers would notice.
+      if (c.kind === "body" && !behaviorChanged) continue;
       const affected = this.affectedBy(change, c.symbol, excluded);
       for (const [agentId, info] of affected) {
         const mechanical = `${change.actor} ${describe(c)} in ${change.path}`;
         const summary = `${mechanical}${meaning ? `: ${meaning}` : ""}. ${info.why.join("; ")}. Re-check your usage before your next edit.`;
-        this.deps.briefings.push({
-          toAgent: agentId,
-          kind: "symbol_changed",
-          ...(change.actor.startsWith("agent-") ? { fromAgent: change.actor } : { fromHuman: change.actor }),
-          summary,
-          details: {
-            file: change.path,
-            symbol: c.symbol,
-            ...(change.intentId ? { intentId: change.intentId } : {}),
-            diff,
-            yourUsages: info.usages,
+        // Same actor, same symbol, same reader within 3 s: update the pending briefing instead of stacking.
+        this.deps.briefings.upsert(
+          {
+            toAgent: agentId,
+            kind: "symbol_changed",
+            ...(change.actor.startsWith("agent-") ? { fromAgent: change.actor } : { fromHuman: change.actor }),
+            summary,
+            details: {
+              file: change.path,
+              symbol: c.symbol,
+              ...(change.intentId ? { intentId: change.intentId } : {}),
+              diff,
+              yourUsages: info.usages,
+            },
+            requiresAck: true,
           },
-          requiresAck: true,
-        });
+          { windowMs: COALESCE_MS },
+        );
       }
     }
   }
@@ -161,14 +171,16 @@ export class ChangeWatcher {
     return clip(patch.replace(/^=+\n/, ""), 2000);
   }
 
-  private async meaningOf(change: StoreChange, changes: SymbolChange[], diff: string): Promise<string> {
+  /** One model call per edit. If the model is unavailable or vague, assume behavior changed (safe side). */
+  private async meaningOf(change: StoreChange, changes: SymbolChange[], diff: string): Promise<{ meaning: string; behaviorChanged: boolean }> {
     const user = JSON.stringify({ file: change.path, actor: change.actor, intentId: change.intentId, changes: changes.map(describe), diff: clip(diff, 3000) }, null, 2);
     try {
-      const raw = await this.deps.llm.json<{ meaning?: unknown }>(CHECK_PROMPTS.meaning, user, "{meaning: string}");
+      const raw = await this.deps.llm.json<{ meaning?: unknown; behaviorChanged?: unknown }>(CHECK_PROMPTS.meaning, user, "{meaning: string, behaviorChanged: boolean}");
       const meaning = typeof raw?.meaning === "string" ? raw.meaning.replace(/\s+/g, " ").trim() : "";
-      return clip(meaning, 160);
+      const behaviorChanged = typeof raw?.behaviorChanged === "boolean" ? raw.behaviorChanged : true;
+      return { meaning: clip(meaning, 160), behaviorChanged };
     } catch {
-      return "";
+      return { meaning: "", behaviorChanged: true };
     }
   }
 
