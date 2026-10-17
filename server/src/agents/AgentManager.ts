@@ -17,6 +17,8 @@ export interface AgentRunOptions {
   task: string;
   client: AgentClientLike;
   model?: string;
+  maxToolCalls?: number;
+  maxMs?: number;
   signal?: AbortSignal;
   interrupt?: { current(): AbortSignal };
   onEvent?: (e: { type: "llm_call" | "tool_call" | "status"; [k: string]: unknown }) => void;
@@ -47,15 +49,33 @@ export interface AgentManagerOptions {
   briefings: () => BriefingQueueLike;
   mode: () => HiveMode;
   model?: string;
+  /** Budget per run; defaults 60 calls / 10 min, env HIVE_AGENT_MAX_TOOL_CALLS / HIVE_AGENT_MAX_MS override. */
+  maxToolCalls?: number;
+  maxMs?: number;
   /** Runs when a run reaches a terminal status, before agent_status is emitted (closes open intents). */
   onTerminal?: (agentId: AgentId, status: AgentStatus) => void;
+}
+
+export const DEFAULT_MAX_TOOL_CALLS = 60;
+export const DEFAULT_MAX_MS = 10 * 60_000;
+
+function envNumber(name: string): number | undefined {
+  const raw = process.env[name];
+  if (!raw) return undefined;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : undefined;
 }
 
 export class AgentManager implements AgentManagerLike {
   private readonly agents = new Map<AgentId, AgentRecord>();
   private readonly running = new Map<AgentId, Running>();
+  readonly maxToolCalls: number;
+  readonly maxMs: number;
 
-  constructor(private readonly opts: AgentManagerOptions) {}
+  constructor(private readonly opts: AgentManagerOptions) {
+    this.maxToolCalls = opts.maxToolCalls ?? envNumber("HIVE_AGENT_MAX_TOOL_CALLS") ?? DEFAULT_MAX_TOOL_CALLS;
+    this.maxMs = opts.maxMs ?? envNumber("HIVE_AGENT_MAX_MS") ?? DEFAULT_MAX_MS;
+  }
 
   register(agentId: AgentId, humanId: HumanId): AgentRecord {
     let rec = this.agents.get(agentId);
@@ -107,6 +127,8 @@ export class AgentManager implements AgentManagerLike {
       humanId: input.humanId,
       task: input.task,
       client,
+      maxToolCalls: this.maxToolCalls,
+      maxMs: this.maxMs,
       signal: run.stop.signal,
       interrupt: { current: () => this.running.get(input.agentId)?.interrupt.signal ?? new AbortController().signal },
       mode: this.opts.mode(),
