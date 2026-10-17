@@ -1,10 +1,9 @@
 import { ChevronDown, Cloud, FolderOpen, GitBranch, MoreHorizontal } from "lucide-react";
-import type { FileInfo, HiveMode, Intent, IntentStatus } from "@hive/shared";
+import type { FileInfo, HiveMode, Intent } from "@hive/shared";
+import { visibleIntents } from "../intentsView";
 import { agentColor } from "../state";
 import { ScrollArea } from "./ui/scroll-area";
 import { cn } from "../lib/utils";
-
-const ACTIVE: readonly IntentStatus[] = ["approved", "in_progress", "conflict"];
 
 interface Props {
   files: FileInfo[];
@@ -37,9 +36,10 @@ export function groupFiles(files: FileInfo[]): Group[] {
   return out;
 }
 
+// Same rule as the editor labels: only live intents, one per agent (closed ones never count).
 export function presentAgents(intents: Intent[], path: string): { agentId: string; humanId: string }[] {
   const seen = new Map<string, string>();
-  for (const i of intents) if (i.target.file === path && ACTIVE.includes(i.status)) seen.set(i.agentId, i.humanId);
+  for (const { intent: i } of visibleIntents(intents, path)) seen.set(i.agentId, i.humanId);
   return [...seen.entries()].map(([agentId, humanId]) => ({ agentId, humanId }));
 }
 

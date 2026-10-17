@@ -1,7 +1,8 @@
 import { Suspense, lazy, useEffect, useState } from "react";
 import { Plus } from "lucide-react";
 import type { SymbolInfo } from "@hive/shared";
-import { intentsForFile, type UiState } from "../state";
+import type { UiState } from "../state";
+import { earlierMap, useLingeringVerified, visibleIntents } from "../intentsView";
 import { fetchFile } from "../api";
 import { mockFileContent } from "../mock";
 import { MockEditor, type LastEdit } from "./MockEditor";
@@ -29,7 +30,11 @@ export function EditorPane({ state, mock, humanId, path, onSelect, lastEdit }: P
   const files = state.files;
   const fileRev = files.find((f) => f.path === path)?.rev ?? 0;
   const symbols = useServerSymbols(path, fileRev, mock);
-  const intents = path ? intentsForFile(state, path) : [];
+  // One label per agent per symbol, closed intents folded into "+N earlier" (shared with tree and strip).
+  const lingering = useLingeringVerified(state.intents);
+  const visible = visibleIntents(state.intents, path, lingering);
+  const intents = visible.map((v) => v.intent);
+  const earlier = earlierMap(visible);
 
   return (
     <section className="grid min-h-0 grid-rows-[44px_auto_1fr] bg-background">
@@ -60,10 +65,10 @@ export function EditorPane({ state, mock, humanId, path, onSelect, lastEdit }: P
         {path === null ? (
           <div className="px-4 py-6 text-xs text-muted-foreground">Waiting for the project.</div>
         ) : mock ? (
-          <MockEditor content={mockFileContent(path, state.rev)} intents={intents} lastEdit={lastEdit} />
+          <MockEditor content={mockFileContent(path, state.rev)} intents={intents} earlier={earlier} lastEdit={lastEdit} />
         ) : (
           <Suspense fallback={<div className="px-4 py-6 text-xs text-muted-foreground">Loading editor.</div>}>
-            <LiveEditor path={path} humanId={humanId} intents={intents} symbols={symbols} lastEdit={lastEdit} />
+            <LiveEditor path={path} humanId={humanId} intents={intents} earlier={earlier} symbols={symbols} lastEdit={lastEdit} />
           </Suspense>
         )}
       </div>

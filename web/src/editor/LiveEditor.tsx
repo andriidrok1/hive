@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { Intent, SymbolInfo } from "@hive/shared";
+import type { Intent, IntentId, SymbolInfo } from "@hive/shared";
 import * as Y from "yjs";
 import { EditorState, StateEffect, StateField, type Extension } from "@codemirror/state";
 import { Decoration, EditorView, WidgetType, keymap, type DecorationSet } from "@codemirror/view";
@@ -42,15 +42,17 @@ class LabelWidget extends WidgetType {
     private id: string,
     private text: string,
     private color: string,
+    private tip: string = "",
   ) {
     super();
   }
   eq(other: LabelWidget): boolean {
-    return other.id === this.id && other.text === this.text && other.color === this.color;
+    return other.id === this.id && other.text === this.text && other.color === this.color && other.tip === this.tip;
   }
   toDOM(): HTMLElement {
     const el = document.createElement("div");
     el.className = "intent-label";
+    if (this.tip) el.title = this.tip;
     el.style.borderLeftColor = this.color;
     el.style.setProperty("--c", this.color);
     const pill = document.createElement("span");
@@ -74,7 +76,7 @@ function buildDecorations(doc: EditorState["doc"], ranges: IntentRange[]): Decor
     const end = Math.max(start, Math.min(r.endLine, doc.lines));
     out.push({
       from: doc.line(start).from,
-      deco: Decoration.widget({ widget: new LabelWidget(r.intent.id, r.label, r.color), block: true, side: -1 }),
+      deco: Decoration.widget({ widget: new LabelWidget(r.intent.id, r.label, r.color, r.earlier.length ? `earlier intents on ${r.intent.target.symbol}: ${r.earlier.join(", ")}` : ""), block: true, side: -1 }),
     });
     for (let ln = start; ln <= end; ln++) {
       out.push({
@@ -106,10 +108,11 @@ interface Props {
   humanId: string;
   intents: Intent[];
   symbols: SymbolInfo[] | null;
+  earlier?: Record<IntentId, IntentId[]>; // folded older intents per shown intent
   lastEdit?: LastEdit; // latest edit_applied from the feed, to colour the flash by agent
 }
 
-export default function LiveEditor({ path, humanId, intents, symbols, lastEdit }: Props) {
+export default function LiveEditor({ path, humanId, intents, symbols, earlier = {}, lastEdit }: Props) {
   const lastEditRef = useRef<LastEdit | undefined>(lastEdit);
   lastEditRef.current = lastEdit;
   const host = useRef<HTMLDivElement>(null);
@@ -160,16 +163,16 @@ export default function LiveEditor({ path, humanId, intents, symbols, lastEdit }
   // Push intent ranges whenever intents, symbols or the document text change.
   // Never dispatch synchronously from inside another update (Yjs observers fire mid-transaction),
   // so recomputation is always deferred and debounced.
-  const latest = useRef({ intents, symbols });
-  latest.current = { intents, symbols };
+  const latest = useRef({ intents, symbols, earlier });
+  latest.current = { intents, symbols, earlier };
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const schedule = () => {
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(() => {
       const v = viewRef.current;
       if (!v) return;
-      const { intents: i, symbols: s } = latest.current;
-      v.dispatch({ effects: setRanges.of(intentRanges(i, v.state.doc.toString(), s)) });
+      const { intents: i, symbols: s, earlier: e } = latest.current;
+      v.dispatch({ effects: setRanges.of(intentRanges(i, v.state.doc.toString(), s, e)) });
     }, 60);
   };
   useEffect(() => {
@@ -181,7 +184,7 @@ export default function LiveEditor({ path, humanId, intents, symbols, lastEdit }
       if (timer.current) clearTimeout(timer.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [intents, symbols, ytext]);
+  }, [intents, symbols, earlier, ytext]);
 
   // Remote edits (agents, other humans): flash the changed span in the editing agent's colour.
   useEffect(() => {
