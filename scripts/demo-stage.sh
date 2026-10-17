@@ -1,5 +1,5 @@
 #!/bin/sh
-# Stage demo. Step 1 (run 10–15 s before walking up): reset the project and start Alex's agent.
+# Stage demo (3 agents). Step 1 (run 10–15 s before walking up): reset the project and start Alex's agent.
 # Step 2 (live, from the web UI "Start agent"): agentId agent-andrii, human andrii, task = ANDRII_TASK below.
 # Usage: sh scripts/demo-stage.sh            # reset + start Alex
 #        sh scripts/demo-stage.sh andrii     # start Andrii's agent from the terminal instead of the UI
@@ -8,6 +8,7 @@ BASE=${HIVE_URL:-http://localhost:4317}
 MODE=${HIVE_MODE:-hive}
 
 ALEX_TASK='In src/order.ts add two exported functions and tests for both in test/order.test.ts. (1) receipt(items, promo?) returns one string: the lines of orderSummary(items, promo) joined with "\n", with an extra first line "Items: N" where N is the total quantity. (2) receiptWidth(items, promo?) returns the length of the longest line of receipt(items, promo). Cover: empty cart, one item without promo, two items with a percent promo. You own the new functions receipt and receiptWidth and their tests; do not change orderSummary itself.'
+NIKA_TASK='In src/format.ts make formatPrice handle negative cents by returning the sign before the dollar ("-$1.50" for -150) and add an exported helper alignMoney(label, cents, width) that returns the label, spaces, and formatPrice(cents) right-aligned to the given total width. Add tests for both in test/format.test.ts. You own src/format.ts and test/format.test.ts.'
 ANDRII_TASK='In src/order.ts add an exported helper discountLine(subtotalCents, promo?) that returns the string "Discount -$x.xx" for a promo (use applyDiscount and formatPrice) or null when there is no promo, and make orderSummary use it for its Discount line instead of formatting inline. Add tests for discountLine in test/order.test.ts. You own discountLine and orderSummary.'
 
 post() {
@@ -26,6 +27,8 @@ fi
 
 curl -s -X POST "$BASE/api/reset" -H 'Content-Type: application/json' -d "{\"mode\":\"$MODE\"}" >/dev/null
 post agent-alex alex "$ALEX_TASK"
+sleep 3
+post agent-nika nika "$NIKA_TASK"
 echo
 echo "Now walk up. In the UI: open src/order.ts (Alex's intent shows there), then Start agent:"
 echo "  agentId: agent-andrii   human: andrii"
