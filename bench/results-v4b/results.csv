@@ -1,0 +1,4 @@
+scenario,variant,repeat,conflict,success,passed,failed,acceptancePassed,acceptanceFailed,acceptanceOk,toolCalls,llmCalls,tokensIn,tokensOut,wallMs,briefingsSent,acksAdapted,conflictsCaught,culpritSearches,culpritCorrect,mergeOk,agentsFinished,error
+c01-control-wa-and-validation,hive,1,false,true,25,0,2,0,true,41,48,19374,3893,39081,2,2,0,1,false,,true,
+c01-control-wa-and-validation,naive,1,false,true,26,0,2,0,true,16,18,6842,1353,15026,0,0,0,0,,,true,
+c01-control-wa-and-validation,isolated,1,false,true,25,0,2,0,true,18,20,7805,1410,15027,0,0,0,0,,true,true,

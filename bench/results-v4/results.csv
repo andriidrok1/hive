@@ -1,0 +1,7 @@
+scenario,variant,repeat,conflict,success,passed,failed,acceptancePassed,acceptanceFailed,acceptanceOk,toolCalls,llmCalls,tokensIn,tokensOut,wallMs,briefingsSent,acksAdapted,conflictsCaught,culpritSearches,culpritCorrect,mergeOk,agentsFinished,error
+s01-double-tax,hive,1,true,false,19,5,1,2,false,70,84,35513,6994,48102,12,7,1,4,true,,true,
+s01-double-tax,naive,1,true,false,20,3,2,1,false,64,72,49973,6624,60127,2,0,0,0,,,true,
+s01-double-tax,isolated,1,true,false,17,2,0,2,false,59,67,44486,6014,51090,3,0,0,0,,true,true,
+s02-rename,hive,1,true,true,24,0,2,0,true,64,77,47668,5809,39067,13,6,0,3,true,,true,
+s02-rename,naive,1,true,true,24,0,2,0,true,56,63,32324,3922,36064,3,0,0,0,,,true,
+s02-rename,isolated,1,true,false,21,2,1,1,false,30,32,19117,1688,21033,0,0,0,0,,true,true,

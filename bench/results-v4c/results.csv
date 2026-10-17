@@ -1,0 +1,10 @@
+scenario,variant,repeat,conflict,success,passed,failed,acceptancePassed,acceptanceFailed,acceptanceOk,toolCalls,llmCalls,tokensIn,tokensOut,wallMs,briefingsSent,acksAdapted,conflictsCaught,culpritSearches,culpritCorrect,mergeOk,agentsFinished,error
+s01-double-tax,hive,1,true,false,18,2,0,2,false,71,86,43772,9639,63123,20,7,2,3,true,,true,
+s01-double-tax,naive,1,true,true,23,0,3,0,true,39,43,25027,4170,36059,2,1,0,0,,,true,
+s01-double-tax,isolated,1,true,false,19,4,1,2,false,32,36,20824,3531,24046,3,0,0,0,,true,true,
+s02-rename,hive,1,true,true,23,0,2,0,true,55,69,24740,4695,36132,11,5,0,3,false,,true,
+s02-rename,naive,1,true,false,21,3,1,1,false,48,53,24413,3109,48066,2,0,0,0,,,true,
+s02-rename,isolated,1,true,false,21,3,1,1,false,32,34,13323,1872,24033,0,0,0,0,,true,true,
+c01-control-wa-and-validation,hive,1,false,true,25,0,2,0,true,20,24,10532,1707,15023,0,0,0,0,,,true,
+c01-control-wa-and-validation,naive,1,false,true,26,0,2,0,true,18,20,10026,1435,15021,0,0,0,0,,,true,
+c01-control-wa-and-validation,isolated,1,false,true,25,0,2,0,true,18,20,9758,1453,15018,0,0,0,0,,true,true,
