@@ -69,7 +69,7 @@ export async function runScenario(
       const delay = scenario.startDelaysMs[a.agentId] ?? 0;
       if (delay > 0) await sleep(delay);
       log(`${scenario.id}/${variant}#${repeat}: start ${a.agentId} (+${delay}ms)`);
-      await client.startAgent(a.agentId, a.humanId, a.task);
+      await client.startAgent(a.agentId, a.humanId, a.task, a.owns);
     });
     await Promise.all(starts);
 

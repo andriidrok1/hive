@@ -95,8 +95,8 @@ describe("runScenario", () => {
     let clock = 1000;
     // Events that the fake server does not generate on its own: pushed when agents start.
     const origStart = client.startAgent.bind(client);
-    client.startAgent = async (agentId, humanId, task) => {
-      const r = await origStart(agentId, humanId, task);
+    client.startAgent = async (agentId, humanId, task, owns) => {
+      const r = await origStart(agentId, humanId, task, owns);
       server.emit({ type: "llm_call", purpose: `agent:${agentId}`, model: "m", ms: 5, tokensIn: 100, tokensOut: 10 });
       server.emit({ type: "agent_status", agentId, humanId, status: "tool", step: 1 });
       server.emit({ type: "agent_status", agentId, humanId, status: "tool", step: 2 });
@@ -156,8 +156,12 @@ describe("runScenario", () => {
     expect(server.calls.at(-1)!.body).toEqual({ extraFiles: { "test/s01.accept.test.ts": "// extra" } });
     // the second agent waited its startDelaysMs before starting
     expect(slept).toContain(3000);
-    const starts = server.calls.filter((c) => c.path === "/api/agents").map((c) => (c.body as { agentId: string }).agentId);
-    expect(starts).toEqual(["agent-andrii", "agent-masha"]);
+    const startBodies = server.calls.filter((c) => c.path === "/api/agents").map((c) => c.body as { agentId: string; humanId: string; task: string; owns: string[] });
+    expect(startBodies.map((b) => b.agentId)).toEqual(["agent-andrii", "agent-masha"]);
+    // each agent's ownership list from the scenario file rides along in the start body
+    expect(startBodies[0]).toEqual({ agentId: "agent-andrii", humanId: "andrii", task: s01.agents[0]!.task, owns: s01.agents[0]!.owns });
+    expect(startBodies[1]!.owns).toEqual(s01.agents[1]!.owns);
+    expect(startBodies[1]!.owns).toContain("src/order.ts");
     // the feed was opened before the first agent started and closed at the end
     expect(server.sockets).toHaveLength(1);
     expect(server.sockets[0]!.closed).toBe(true);
@@ -172,6 +176,11 @@ describe("runScenario", () => {
     expect(paths.indexOf("POST /api/merge")).toBeLessThan(paths.indexOf("POST /api/test"));
     expect(row.mergeOk).toBe(true);
     expect(row.success).toBe(true);
+    // owns is sent in non-hive variants too, so the comparison stays fair
+    for (const c of server.calls.filter((c) => c.path === "/api/agents")) {
+      const agent = c01.agents.find((a) => a.agentId === (c.body as { agentId: string }).agentId)!;
+      expect((c.body as { owns?: string[] }).owns).toEqual(agent.owns);
+    }
     // every POST carries a JSON body, Fastify rejects an empty one with FST_ERR_CTP_EMPTY_JSON_BODY
     for (const c of server.calls) if (c.method === "POST") expect(c.rawBody, c.path).toMatch(/^\{/);
     expect(server.calls.find((c) => c.path === "/api/merge")!.body).toEqual({});
