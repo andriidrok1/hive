@@ -1,8 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { createPatch } from "diff";
-import type { ChangeSet, IntentId } from "@hive/shared";
-import { applyEdits } from "../../src/core/index.js";
-import type { HistoryLike } from "../../src/api/deps.js";
+import { vi } from "vitest";
+import * as core from "../../src/core/index.js";
 import type { RunTestsData } from "../../src/api/tools.js";
 import { GOOD_INTENT, makeHive, register, type TestHive, waitFor } from "./helpers.js";
 
@@ -11,40 +9,11 @@ afterEach(async () => {
   await t?.close();
 });
 
-/**
- * Until core ships History.openEdits/buildView, give the real History instance an equivalent pair
- * built from store.onChange. Once the real methods exist this does nothing and they are tested instead.
- */
-function ensureViewApi(t: TestHive): void {
-  const h = t.hive.ctx.deps.history as HistoryLike;
-  if (h.openEdits && h.buildView) return;
-  const open = new Map<IntentId, ChangeSet["edits"]>();
-  t.hive.ctx.deps.store.onChange((c) => {
-    if (!c.intentId) return;
-    const list = open.get(c.intentId) ?? [];
-    list.push({ path: c.path, patch: createPatch(c.path, c.before, c.after, "", "", { context: 3 }) });
-    open.set(c.intentId, list);
-  });
-  h.openEdits = (id) => open.get(id) ?? [];
-  h.buildView = (base, sets, extra = []) => {
-    let files = { ...base };
-    for (const s of sets) {
-      const r = applyEdits(files, s.edits);
-      if (!r.ok) return { ok: false, path: r.path, index: r.index, setId: s.id };
-      files = r.files;
-    }
-    const r = applyEdits(files, extra);
-    if (!r.ok) return { ok: false, path: r.path, index: r.index };
-    return { ok: true, files: r.files };
-  };
-}
-
 const lastRun = (t: TestHive) => t.runner.testCalls[t.runner.testCalls.length - 1]!;
 
 describe("run_tests judges an agent on its own view", () => {
   it("includes finished sets and own open edits, excludes another agent's in-progress edit, and says so", async () => {
     t = await makeHive();
-    ensureViewApi(t);
     register(t, "agent-andrii");
     register(t, "agent-masha");
 
@@ -93,7 +62,6 @@ describe("run_tests judges an agent on its own view", () => {
 
   it("an agent with nothing open gets the green base plus finished sets; naive mode runs on the live project", async () => {
     t = await makeHive();
-    ensureViewApi(t);
     register(t, "agent-andrii");
     register(t, "agent-masha");
     const m1 = await t.tool("agent-masha", "declare_intent", { ...GOOD_INTENT, target: { file: "src/format.ts", symbol: "formatPrice" }, what: "format negatives with a minus", output: "returns -$1.00 for -100 cents" });
@@ -119,10 +87,8 @@ describe("run_tests judges an agent on its own view", () => {
 
   it("falls back to the live store with an explanatory note when the view cannot be built", async () => {
     t = await makeHive();
-    ensureViewApi(t);
     register(t, "agent-andrii");
-    const h = t.hive.ctx.deps.history as HistoryLike;
-    h.buildView = () => ({ ok: false, path: "src/checkout.ts", index: 0, setId: "A1" });
+    const spy = vi.spyOn(core, "buildView").mockReturnValue({ ok: false, failedAt: { intentId: "A1", path: "src/checkout.ts", index: 0 } });
     const a1 = await t.tool("agent-andrii", "declare_intent", GOOD_INTENT);
     await t.tool("agent-andrii", "edit_region", { intentId: a1.data!.intent.id, path: "src/checkout.ts", oldText: "return applyDiscount(subtotal(items), promo);", newText: "return Math.round(applyDiscount(subtotal(items), promo));" });
     const res = await t.tool("agent-andrii", "run_tests", {});
@@ -132,5 +98,6 @@ describe("run_tests judges an agent on its own view", () => {
     expect(d.note).toContain("ran on the live shared project instead");
     expect(d.view?.ownOpenIntents).toEqual(["A1"]);
     expect(lastRun(t).files["src/checkout.ts"]).toContain("Math.round(");
+    spy.mockRestore();
   });
 });

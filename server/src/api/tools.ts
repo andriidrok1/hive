@@ -18,6 +18,7 @@ import type {
   ToolResponse,
   ToolResults,
 } from "@hive/shared";
+import { buildView } from "../core/index.js";
 import type { HiveContext, ProjectStoreLike, ToolCaller } from "./deps.js";
 
 export class UnknownAgentError extends Error {
@@ -368,7 +369,7 @@ export type RunTestsData = TestResult & { view?: RunTestsView; note?: string };
 /**
  * The files an agent's run_tests is judged on. In hive mode: last green snapshot + finished change
  * sets since it + the agent's own open edits, so another agent's half-done work cannot fail its run.
- * Falls back to the live store (and says so) when the view cannot be built or History lacks the API.
+ * Falls back to the live store (and says so) when the view cannot be built.
  */
 export function agentView(ctx: HiveContext, agentId: AgentId, store: ProjectStoreLike): { files: Record<string, string>; view?: RunTestsView; note: string } {
   const d = ctx.deps;
@@ -377,20 +378,17 @@ export function agentView(ctx: HiveContext, agentId: AgentId, store: ProjectStor
     return { files: live(), note: d.mode === "isolated" ? "Ran on your private copy of the project." : "Ran on the live shared project." };
   }
   const h = d.history;
-  if (!h.openEdits || !h.buildView) {
-    return { files: live(), note: "Ran on the live shared project, including other agents' in-progress edits." };
-  }
   const green = h.lastGreen();
   const base = green ? { rev: green.rev, files: green.files } : { rev: 0, files: d.initialFiles };
   const sets = h.changeSetsSince(base.rev);
   const all = d.intents.list().filter((i) => i.status === "in_progress");
   const ownIntents = all.filter((i) => i.agentId === agentId);
-  const own = ownIntents.flatMap((i) => h.openEdits!(i.id));
+  const own = ownIntents.flatMap((i) => h.openEdits(i.id));
   const excluded = all
     .filter((i) => i.agentId !== agentId)
-    .map((i) => ({ intentId: i.id, agentId: i.agentId, files: [...new Set(h.openEdits!(i.id).map((e) => e.path))] }));
+    .map((i) => ({ intentId: i.id, agentId: i.agentId, files: [...new Set(h.openEdits(i.id).map((e) => e.path))] }));
   const view: RunTestsView = { finishedSets: sets.map((s) => s.id), ownOpenIntents: ownIntents.map((i) => i.id), excludedInProgress: excluded };
-  const built = h.buildView(base.files, sets, own);
+  const built = buildView(base.files, sets, own);
   const excludedText = excluded.length
     ? ` Excluded in-progress edits of ${excluded.map((e) => `${e.agentId} (${e.intentId}: ${e.files.join(", ") || "no edits yet"})`).join(", ")}.`
     : "";
@@ -398,7 +396,7 @@ export function agentView(ctx: HiveContext, agentId: AgentId, store: ProjectStor
     return {
       files: live(),
       view,
-      note: `Could not build your view (patch of ${built.setId ?? "open edits"} did not apply at ${built.path}#${built.index}); ran on the live shared project instead, which includes other agents' in-progress edits.${excludedText}`,
+      note: `Could not build your view (patch of ${built.failedAt.intentId ?? "open edits"} did not apply at ${built.failedAt.path}#${built.failedAt.index}); ran on the live shared project instead, which includes other agents' in-progress edits.${excludedText}`,
     };
   }
   const parts = [`green rev ${base.rev}`];
