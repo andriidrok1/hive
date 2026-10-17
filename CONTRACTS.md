@@ -217,7 +217,7 @@ Per-tool rules:
 
 ## Agent loop rules (brief 05)
 
-- OpenAI Chat Completions with tools, model `HIVE_MODEL_AGENT`, `reasoning_effort: "low"`, `parallel_tool_calls: false`.
+- OpenAI Chat Completions with tools, model `HIVE_MODEL_AGENT`, `reasoning_effort: "none"` (the API rejects `"low"` together with function tools on gpt-5.4-mini; the loop tries `"low"` once and caches the fallback per model), `parallel_tool_calls: false`. Measured 17.10: ~1 s per model call, a full 8-tool task in under 10 s.
 - Two cancellation channels: `signal` (stop for good; once aborted the run ends with `stopped`) and `interrupt: { current(): AbortSignal }` (urgent human note; the loop asks for a fresh signal before **every** model call, so after one interruption the next call proceeds). The AgentManager owns both controllers and replaces the interrupt controller after each use.
 - Each tool result message content = JSON of `ToolResponse`. If `briefings` is non-empty, the loop also appends them as readable text under `HIVE BRIEFINGS:` at the end of the tool result, so the model cannot miss them.
 - If `control` is `pause`, the loop waits and polls `/control`; if `stop`, it ends.
