@@ -92,6 +92,49 @@ export function mergeCopies(ctx: HiveContext, tools: ToolHandlers): MergeResult 
   return { ok: conflicts.length === 0, conflicts, rev: main.rev };
 }
 
+// Demo preview: runs the live project through a small script and returns what the checkout shows right now.
+export const PREVIEW_SCRIPT = `import * as order from "./src/order.ts";
+import * as fmt from "./src/format.ts";
+const items = [{ sku: "Coffee beans 1kg", priceCents: 1899, qty: 2 }, { sku: "Ceramic mug", priceCents: 1250, qty: 1 }, { sku: "Filters (100)", priceCents: 599, qty: 1 }];
+const promo = { code: "TEN", kind: "percent", value: 10 } as any;
+const o: any = order; const f: any = fmt;
+const out: any = { ok: true, items, promo };
+try { out.summary = o.orderSummary(items, promo); } catch (e: any) { out.summaryError = String(e?.message ?? e); }
+try { out.receipt = typeof o.receipt === "function" ? o.receipt(items, promo) : null; } catch (e: any) { out.receiptError = String(e?.message ?? e); }
+try { out.receiptWidth = typeof o.receiptWidth === "function" ? o.receiptWidth(items, promo) : null; } catch {}
+try { out.formatPercent = typeof f.formatPercent === "function" ? f.formatPercent(10) : null; } catch {}
+try { out.negative = typeof f.formatPrice === "function" ? f.formatPrice(-150) : null; } catch {}
+console.log(JSON.stringify(out));
+`;
+
+export type PreviewResult = Record<string, unknown> & { ok: boolean; error?: string };
+
+/** Runs PREVIEW_SCRIPT on the current files (cached per store rev); emits nothing to the feed. */
+export function previewRunner(ctx: HiveContext): () => Promise<PreviewResult> {
+  let cache: { deps: object; rev: number; result: Promise<PreviewResult> } | undefined;
+  return () => {
+    const d = ctx.deps;
+    const rev = d.store.rev;
+    if (cache && cache.deps === d && cache.rev === rev) return cache.result;
+    const files = { ...d.store.allFiles(), "preview.mts": PREVIEW_SCRIPT };
+    const result = (async (): Promise<PreviewResult> => {
+      try {
+        const r = await d.runner.runCommand(files, "npx tsx preview.mts", 30);
+        const lastLine = r.stdout.trim().split("\n").filter(Boolean).pop() ?? "";
+        if (r.exitCode === 0 && lastLine.startsWith("{")) return JSON.parse(lastLine) as PreviewResult;
+        return { ok: false, error: (r.stderr.trim() || r.stdout.trim() || `exit ${r.exitCode}`).slice(0, 300) };
+      } catch (err) {
+        return { ok: false, error: (err instanceof Error ? err.message : String(err)).slice(0, 300) };
+      }
+    })();
+    cache = { deps: d, rev, result };
+    void result.then((r) => {
+      if (!r.ok && cache?.result === result) cache = undefined; // do not pin a failure; retry on the next call
+    });
+    return result;
+  };
+}
+
 export function registerHumanRoutes(app: FastifyInstance, ctx: HiveContext, tools: ToolHandlers): void {
   app.get("/api/state", async () => hiveState(ctx));
 
@@ -207,4 +250,7 @@ export function registerHumanRoutes(app: FastifyInstance, ctx: HiveContext, tool
   });
 
   app.get("/api/messages", async () => ({ messages: ctx.deps.mailbox.forHumans() }));
+
+  const preview = previewRunner(ctx);
+  app.get("/api/preview", async () => preview());
 }
