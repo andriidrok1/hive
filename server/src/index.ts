@@ -7,7 +7,6 @@ import type { HiveMode, LLM, Runner } from "@hive/shared";
 import { createHive, loadProjectDir } from "./hive.js";
 import { fakeModules, FakeRunner, NoConflictLLM } from "./api/fakes.js";
 import { SAMPLE_PROJECT } from "./api/sampleProject.js";
-import type { RunAgentFn } from "./agents/AgentManager.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const serverDir = resolve(here, "..");
@@ -20,16 +19,15 @@ const port = Number(env.PORT ?? 4317);
 const projectDir = resolve(serverDir, env.HIVE_PROJECT_DIR ?? "../demo-app");
 
 let initialFiles = existsSync(projectDir) ? loadProjectDir(projectDir) : {};
-if (Object.keys(initialFiles).length === 0) {
-  console.warn(`[hive] no project files in ${projectDir}; serving the built-in sample project`);
+if (!Object.keys(initialFiles).some((p) => p.startsWith("src/"))) {
+  console.warn(`[hive] no src/ files in ${projectDir}; serving the built-in sample project`);
   initialFiles = SAMPLE_PROJECT;
 }
 
-// TODO(integration): replace with real modules once merged into main:
-//   core  -> ProjectStore, ReadLog, History            (server/src/core)
+// Core (server/src/core) and the agent loop (@hive/agent) are real, wired inside createHive.
+// TODO(integration): replace the fakes once merged into main:
 //   coord -> CallGraph, BriefingQueue, IntentRegistry, ChangeWatcher, Mailbox, OpenAILLM/FakeLLM, analyzeFile (server/src/coord)
-//   runner-> makeRunner(env), TestOrchestrator           (server/src/runner)
-//   agent -> runAgent from @hive/agent
+//   runner-> makeRunner(env), TestOrchestrator (server/src/runner)
 const modules = fakeModules();
 const runner: Runner = new FakeRunner();
 console.warn("[hive] runner: in-memory fake (real runner not merged yet)");
@@ -43,12 +41,9 @@ if (env.OPENAI_API_KEY) {
   llm = new NoConflictLLM();
 }
 
-const runAgent: RunAgentFn = async (opts) => {
-  console.error(`[hive] @hive/agent not merged yet; cannot run ${opts.agentId}`);
-  return { status: "error", toolCalls: 0, tokensIn: 0, tokensOut: 0, ms: 0, error: "agent loop not available in this build" };
-};
+if (!env.OPENAI_API_KEY) console.warn("[hive] OPENAI_API_KEY not set: POST /api/agents will fail at the first model call");
 
-const hive = createHive({ mode, initialFiles, runner, llm, modules, runAgent, ...(env.HIVE_MODEL_AGENT ? { model: env.HIVE_MODEL_AGENT } : {}) });
+const hive = createHive({ mode, initialFiles, runner, llm, modules, ...(env.HIVE_MODEL_AGENT ? { model: env.HIVE_MODEL_AGENT } : {}) });
 await hive.built.ready;
 await hive.built.app.listen({ port, host: "0.0.0.0" });
 console.log(`[hive] mode=${mode} files=${Object.keys(initialFiles).length} listening on http://0.0.0.0:${port} (feed /ws/feed, yjs /yjs/project)`);

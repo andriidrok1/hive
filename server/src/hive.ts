@@ -1,19 +1,21 @@
 // createHive: builds every module, wires store.onChange -> History + CallGraph + ChangeWatcher,
 // saves the green baseline, creates the AgentManager and the Fastify app, and supports reset(mode).
 //
-// The module constructors are injected (HiveModules) so this file compiles against the structural
-// interfaces in api/deps.ts; index.ts passes the real classes where they exist and fakes otherwise.
+// Core (ProjectStore, ReadLog, History) and the agent loop (@hive/agent) are imported directly.
+// Coord and runner constructors are injected (HiveModules) against the structural interfaces in
+// api/deps.ts: index.ts passes the real classes where they exist and the fakes otherwise.
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import type { FeedEventBody, HiveMode, LLM, Runner } from "@hive/shared";
+import { runAgent as realRunAgent } from "@hive/agent";
 import { createEmitter } from "./emit.js";
+import { History, ProjectStore, ReadLog } from "./core/index.js";
 import { buildApp, type BuiltApp } from "./api/app.js";
 import type {
   AnalyzeFile,
   BriefingQueueLike,
   CallGraphLike,
   ChangeWatcherLike,
-  HistoryLike,
   HiveContext,
   HiveDeps,
   IntentRegistryLike,
@@ -21,6 +23,7 @@ import type {
   ProjectStoreLike,
   ProjectStoreOptions,
   ReadLogLike,
+  HistoryLike,
   TestOrchestratorLike,
 } from "./api/deps.js";
 import { toolHandlers } from "./api/tools.js";
@@ -30,9 +33,6 @@ import { AgentManager, type RunAgentFn } from "./agents/AgentManager.js";
 type OnEvent = (e: FeedEventBody) => void;
 
 export interface HiveModules {
-  ProjectStore: new (opts?: ProjectStoreOptions) => ProjectStoreLike;
-  ReadLog: new () => ReadLogLike;
-  History: new (store: ProjectStoreLike) => HistoryLike;
   CallGraph: new () => CallGraphLike;
   BriefingQueue: new (opts?: { onEvent?: OnEvent }) => BriefingQueueLike;
   IntentRegistry: new (deps: { llm: LLM; graph: CallGraphLike; reads: ReadLogLike; briefings: BriefingQueueLike; onEvent: OnEvent; mode: HiveMode }) => IntentRegistryLike;
@@ -66,7 +66,8 @@ export interface CreateHiveOptions {
   runner: Runner;
   llm: LLM;
   modules: HiveModules;
-  runAgent: RunAgentFn;
+  /** Defaults to runAgent from @hive/agent; tests inject a scripted one. */
+  runAgent?: RunAgentFn;
   model?: string;
   logger?: boolean;
 }
@@ -88,11 +89,11 @@ export function createHive(opts: CreateHiveOptions): Hive {
 
   const buildDeps = (mode: HiveMode): HiveDeps => {
     const m = opts.modules;
-    const createStore = (storeOpts: ProjectStoreOptions = {}) => new m.ProjectStore(storeOpts);
-    const store = createStore({ onEvent: emit, resolveActor: hub.resolveActor });
+    const createStore = (storeOpts: ProjectStoreOptions = {}): ProjectStoreLike => new ProjectStore(storeOpts);
+    const store = new ProjectStore({ onEvent: emit, resolveActor: hub.resolveActor });
     store.loadFiles(opts.initialFiles);
-    const reads = new m.ReadLog();
-    const history = new m.History(store);
+    const reads = new ReadLog();
+    const history = new History(store);
     const graph = new m.CallGraph();
     graph.update(store.allFiles());
     const briefings = new m.BriefingQueue({ onEvent: emit });
@@ -146,7 +147,7 @@ export function createHive(opts: CreateHiveOptions): Hive {
   };
   const tools = toolHandlers(ctx);
   const managerOpts = {
-    runAgent: opts.runAgent,
+    runAgent: opts.runAgent ?? (realRunAgent as RunAgentFn),
     tools,
     emitter,
     briefings: () => ctx.deps.briefings,
