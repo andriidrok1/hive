@@ -9,6 +9,29 @@ import { oneDark } from "@codemirror/theme-one-dark";
 import { yCollab, yUndoManagerKeymap } from "y-codemirror.next";
 import { hub, useShared } from "./yjs";
 import { intentRanges, type IntentRange } from "./ranges";
+import { FLASH_MS, changedRange } from "./diff";
+import { agentColor } from "../state";
+import type { LastEdit } from "./MockEditor";
+
+// ---------- Live-writing flash: the span a remote edit changed, in the agent's colour, fading out ----------
+
+const addFlash = StateEffect.define<{ from: number; to: number; color: string }>();
+const clearFlash = StateEffect.define<null>();
+
+const flashField = StateField.define<DecorationSet>({
+  create: () => Decoration.none,
+  update(deco, tr) {
+    let next = tr.docChanged ? deco.map(tr.changes) : deco;
+    for (const e of tr.effects) {
+      if (e.is(clearFlash)) next = Decoration.none;
+      if (e.is(addFlash) && e.value.to > e.value.from) {
+        next = next.update({ add: [Decoration.mark({ class: "cm-flash", attributes: { style: `--flash: ${e.value.color}` } }).range(e.value.from, e.value.to)], sort: true });
+      }
+    }
+    return next;
+  },
+  provide: (f) => EditorView.decorations.from(f),
+});
 
 // ---------- Intent decorations ----------
 
@@ -83,9 +106,12 @@ interface Props {
   humanId: string;
   intents: Intent[];
   symbols: SymbolInfo[] | null;
+  lastEdit?: LastEdit; // latest edit_applied from the feed, to colour the flash by agent
 }
 
-export default function LiveEditor({ path, humanId, intents, symbols }: Props) {
+export default function LiveEditor({ path, humanId, intents, symbols, lastEdit }: Props) {
+  const lastEditRef = useRef<LastEdit | undefined>(lastEdit);
+  lastEditRef.current = lastEdit;
   const host = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   const [ytext, setYtext] = useState<Y.Text | null>(null);
@@ -120,6 +146,7 @@ export default function LiveEditor({ path, humanId, intents, symbols }: Props) {
       keymap.of(yUndoManagerKeymap),
       yCollab(ytext, provider.awareness),
       intentField,
+      flashField,
       EditorView.lineWrapping,
     ];
     const view = new EditorView({ state: EditorState.create({ doc: ytext.toString(), extensions }), parent: host.current });
@@ -155,6 +182,33 @@ export default function LiveEditor({ path, humanId, intents, symbols }: Props) {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [intents, symbols, ytext]);
+
+  // Remote edits (agents, other humans): flash the changed span in the editing agent's colour.
+  useEffect(() => {
+    if (!ytext) return;
+    let prev = ytext.toString();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const onChange = (_e: Y.YTextEvent, tr: Y.Transaction) => {
+      const next = ytext.toString();
+      const range = changedRange(prev, next);
+      prev = next;
+      if (!range || tr.local) return;
+      const le = lastEditRef.current;
+      const color = le && le.path === path ? agentColor(le.agentId) : "#8b90a3";
+      setTimeout(() => {
+        const v = viewRef.current;
+        if (!v) return;
+        v.dispatch({ effects: addFlash.of({ from: Math.min(range.from, v.state.doc.length), to: Math.min(range.to, v.state.doc.length), color }) });
+        if (timer) clearTimeout(timer);
+        timer = setTimeout(() => viewRef.current?.dispatch({ effects: clearFlash.of(null) }), FLASH_MS);
+      }, 0);
+    };
+    ytext.observe(onChange);
+    return () => {
+      ytext.unobserve(onChange);
+      if (timer) clearTimeout(timer);
+    };
+  }, [ytext, path]);
 
   if (!ytext) {
     return <div className="editor-wait">{synced ? `No shared document for ${path} yet.` : `Connecting to the shared project… (${path})`}</div>;

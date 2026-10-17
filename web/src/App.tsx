@@ -4,7 +4,10 @@ import { connectLive, createStore, resyncAfterReset, startMock, useHive } from "
 import { hub } from "./editor/yjs";
 import { currentIntentOf, filesOfAgent, pendingBriefings, unresolvedConflicts } from "./state";
 import { ProjectActivity } from "./components/ProjectActivity";
-import { ChatBox } from "./components/ChatBox";
+import { ChatBox, myAgentId } from "./components/ChatBox";
+import { spawnDemoAgents } from "./demoPresets";
+import { TERMINAL_AGENT_STATUSES } from "@hive/shared";
+import { Users } from "lucide-react";
 import { isMock, lanUrl, loadHumanId, saveHumanId } from "./env";
 import { setMockSink } from "./api";
 import { MOCK_LAN_URL } from "./mock";
@@ -43,9 +46,13 @@ export function App({ mockStepMs }: { mockStepMs?: number } = {}) {
   const [chatAgent, setChatAgent] = useState<string | null>(null);
   const chatTarget =
     (chatAgent && state.agents.some((a) => a.agentId === chatAgent) ? chatAgent : null) ??
+    state.agents.find((a) => a.agentId === myAgentId(humanId) && !TERMINAL_AGENT_STATUSES.includes(a.status))?.agentId ??
     state.agents.find((a) => a.status === "thinking" || a.status === "tool")?.agentId ??
     state.agents[0]?.agentId ??
     null;
+  // Latest edit from the feed: colours the live-writing flash in the editor.
+  const lastEditEvent = state.events.find((e) => e.type === "edit_applied");
+  const lastEdit = lastEditEvent && lastEditEvent.type === "edit_applied" ? { rev: lastEditEvent.rev, agentId: lastEditEvent.agentId, path: lastEditEvent.path } : undefined;
   // Coarse clock for elapsed / "2m ago" labels.
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -98,7 +105,7 @@ export function App({ mockStepMs }: { mockStepMs?: number } = {}) {
           <TopBar state={state} humanId={humanId} onHumanId={onHumanId} qrUrl={mock ? MOCK_LAN_URL : lanUrl("/m")} />
           <div className="grid min-h-0 min-w-0 grid-cols-[240px_minmax(0,1fr)_400px]">
             <ProjectPanel files={state.files} intents={state.intents} selected={path} onSelect={setSelected} />
-            <EditorPane state={state} mock={mock} humanId={humanId} path={path} onSelect={setSelected} />
+            <EditorPane state={state} mock={mock} humanId={humanId} path={path} onSelect={setSelected} lastEdit={lastEdit} />
             <section className="grid min-h-0 min-w-0 grid-cols-[minmax(0,1fr)] grid-rows-[minmax(0,1fr)] overflow-hidden border-l border-border bg-panel">
               <Tabs value={main} onValueChange={(v) => setMain(v === "activity" ? "activity" : "agents")} className="min-h-0 min-w-0">
                 <TabsList className="h-11 px-3">
@@ -113,6 +120,10 @@ export function App({ mockStepMs }: { mockStepMs?: number } = {}) {
                   <Button variant="outline" size="sm" className="ml-auto" onClick={() => setDialog(true)}>
                     <Plus />
                     New agent
+                  </Button>
+                  <Button variant="outline" size="sm" className="ml-1.5" title="Start agent-alex and agent-nika with the demo tasks" onClick={() => void spawnDemoAgents()}>
+                    <Users />
+                    Spawn demo agents
                   </Button>
                 </TabsList>
 

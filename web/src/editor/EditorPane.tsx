@@ -4,7 +4,7 @@ import type { SymbolInfo } from "@hive/shared";
 import { intentsForFile, type UiState } from "../state";
 import { fetchFile } from "../api";
 import { mockFileContent } from "../mock";
-import { MockEditor } from "./MockEditor";
+import { MockEditor, type LastEdit } from "./MockEditor";
 import { PresenceStrip } from "./PresenceStrip";
 import { cn } from "../lib/utils";
 
@@ -16,6 +16,7 @@ interface Props {
   humanId: string;
   path: string | null; // controlled by App (shared with the project tree)
   onSelect: (path: string) => void;
+  lastEdit?: LastEdit; // latest edit_applied, colours the live-writing flash
 }
 
 // Which file to open when nothing is selected yet: first src/ file, else the first file.
@@ -24,7 +25,7 @@ export function defaultPath(files: { path: string }[], selected: string | null):
   return (files.find((f) => f.path.startsWith("src/")) ?? files[0])?.path ?? null;
 }
 
-export function EditorPane({ state, mock, humanId, path, onSelect }: Props) {
+export function EditorPane({ state, mock, humanId, path, onSelect, lastEdit }: Props) {
   const files = state.files;
   const fileRev = files.find((f) => f.path === path)?.rev ?? 0;
   const symbols = useServerSymbols(path, fileRev, mock);
@@ -59,10 +60,10 @@ export function EditorPane({ state, mock, humanId, path, onSelect }: Props) {
         {path === null ? (
           <div className="px-4 py-6 text-xs text-muted-foreground">Waiting for the project.</div>
         ) : mock ? (
-          <MockEditor content={mockFileContent(path, state.rev)} intents={intents} />
+          <MockEditor content={mockFileContent(path, state.rev)} intents={intents} lastEdit={lastEdit} />
         ) : (
           <Suspense fallback={<div className="px-4 py-6 text-xs text-muted-foreground">Loading editor.</div>}>
-            <LiveEditor path={path} humanId={humanId} intents={intents} symbols={symbols} />
+            <LiveEditor path={path} humanId={humanId} intents={intents} symbols={symbols} lastEdit={lastEdit} />
           </Suspense>
         )}
       </div>

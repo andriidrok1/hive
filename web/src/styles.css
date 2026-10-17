@@ -267,3 +267,20 @@
 .patch .ctx {
   color: #a1a1aa;
 }
+
+/* Live-writing flash: changed span in the editing agent's colour, fading over 1.5 s */
+@keyframes hive-flash {
+  from {
+    background-color: color-mix(in srgb, var(--flash, #8b90a3) 25%, transparent);
+  }
+  to {
+    background-color: transparent;
+  }
+}
+.cm-flash {
+  animation: hive-flash 1.5s ease-out forwards;
+  border-radius: 2px;
+}
+.mockpre .ln.flash {
+  animation: hive-flash 1.5s ease-out forwards;
+}
