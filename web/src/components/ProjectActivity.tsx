@@ -79,6 +79,8 @@ function describe(e: FeedEvent, human: (id: string) => string, owner: (intentId:
 export function culpritNotice(state: UiState): { text: string; tone: "running" | "found" | "unknown" } | null {
   const g = state.culprit;
   if (!g) return null;
+  // A later green full-suite run means the culprit was dealt with: the line goes away (the Culprit tab keeps the history).
+  if (g.report && state.lastReport && state.tests.lastFull?.result.ok && state.tests.lastFull.at > state.lastReport.at) return null;
   if (!g.report) {
     const expected = Math.max(g.order.length, g.suspects.length * 2);
     return { text: `Culprit search running: ${g.order.length}/${expected} variants…`, tone: "running" };

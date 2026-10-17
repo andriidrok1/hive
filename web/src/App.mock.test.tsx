@@ -51,12 +51,12 @@ describe("App in ?mock=1 mode", () => {
     expect(screen.getByTestId("activity-alerts").textContent).toBe("1");
     expect(screen.getByTestId("culprit-notice").textContent).toContain("Culprit search running");
 
-    // Whole story: still on Agents; the notice names the culprits; tiles show tests passed.
+    // Whole story: still on Agents; tests went green after the culprit search, so the notice is gone; tiles show tests passed.
     await act(async () => {
       vi.advanceTimersByTime(MOCK_STEP_MS * (MOCK_EVENTS.length + 2));
     });
     expect(screen.getByRole("tab", { name: /^Agents/ }).getAttribute("aria-selected")).toBe("true");
-    expect(screen.getByTestId("culprit-notice").textContent).toBe("Culprit: andrii's A1 + masha's M2 together");
+    expect(screen.queryByTestId("culprit-notice")).toBeNull();
     expect(screen.getByTestId("tests-tile").textContent).toContain("6");
     expect(screen.getByTestId("tests-tile").textContent).toContain("@rev 6");
 
