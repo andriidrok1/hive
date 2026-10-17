@@ -305,7 +305,8 @@ export interface HiveState {
   files: FileInfo[];
   // owns: optional file-ownership zones given at POST /api/agents ({ agentId, humanId, task, owns?: string[] }).
   // When present, declare_intent/edit_region/create_file outside these paths fail with NOT_OWNER.
-  agents: { agentId: AgentId; humanId: HumanId; status: AgentStatus; task?: string; control: AgentControl; owns?: string[] }[];
+  // color: assigned by the server in order of start; the same color is used for the agent's Yjs awareness cursor.
+  agents: { agentId: AgentId; humanId: HumanId; status: AgentStatus; task?: string; control: AgentControl; owns?: string[]; color?: string }[];
   intents: Intent[];
   history: ChangeSet[];
   lastGreen?: { rev: Rev; at: number };
