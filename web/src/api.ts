@@ -47,6 +47,14 @@ export async function fetchPreview(): Promise<PreviewData> {
   return (await res.json()) as PreviewData;
 }
 
+// GET /api/preview-site: only answers when the Freestyle preview site is enabled.
+export async function fetchPreviewSite(): Promise<{ url: string; vmId?: string; domain?: string } | null> {
+  const res = await fetch("/api/preview-site");
+  if (!res.ok) return null;
+  const j = (await res.json()) as { url?: unknown };
+  return typeof j.url === "string" && j.url ? { url: j.url, ...(j as { vmId?: string; domain?: string }) } : null;
+}
+
 export async function startAgent(args: { agentId: AgentId; humanId: HumanId; task: string }): Promise<void> {
   if (mockSink) {
     mockSink({ type: "agent_status", agentId: args.agentId, humanId: args.humanId, status: "thinking", task: args.task, step: 1 });

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Check, Columns2, RefreshCw, X } from "lucide-react";
-import { fetchPreview, type PreviewData } from "../api";
+import { Check, Columns2, ExternalLink, QrCode, RefreshCw, X } from "lucide-react";
+import { fetchPreview, fetchPreviewSite, type PreviewData } from "../api";
+import { useQrSvg } from "../components/Qr";
 import type { UiState } from "../state";
 import { Button } from "../components/ui/button";
 import { cn } from "../lib/utils";
@@ -86,6 +87,22 @@ export function Preview({ state, mock, active, load }: Props) {
 
   const canCompare = before !== null && after !== null && before !== after;
 
+  // Live site on a Freestyle VM: from /api/state, or asked once on open (local-only runs answer 404 → hidden).
+  const [siteUrl, setSiteUrl] = useState<string | undefined>(state.previewSiteUrl);
+  useEffect(() => {
+    if (state.previewSiteUrl) setSiteUrl(state.previewSiteUrl);
+  }, [state.previewSiteUrl]);
+  useEffect(() => {
+    if (!active || mock || load || siteUrl) return;
+    let alive = true;
+    fetchPreviewSite()
+      .then((s) => alive && s && setSiteUrl(s.url))
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [active, mock, load, siteUrl]);
+
   return (
     <div className="flex h-full flex-col gap-3 overflow-auto p-4" data-testid="preview">
       <div className="flex items-center gap-2">
@@ -93,6 +110,7 @@ export function Preview({ state, mock, active, load }: Props) {
         <span className="font-mono text-[11px] text-muted-foreground" data-testid="preview-caption">
           {after ? `updated @rev ${after.rev}` : busy ? "loading…" : "not loaded"}
         </span>
+        {siteUrl && <LiveSite url={siteUrl} />}
         <div className="flex-1" />
         <Button variant={compare ? "default" : "outline"} size="sm" onClick={() => setCompare((c) => !c)} disabled={!canCompare} aria-pressed={compare} title={canCompare ? "Show the project before the agents next to the live result" : "Needs a before snapshot (first fetch at rev 0)"}>
           <Columns2 />
@@ -108,6 +126,41 @@ export function Preview({ state, mock, active, load }: Props) {
         <div className={cn("grid gap-4", compare && canCompare ? "grid-cols-2" : "grid-cols-1 max-w-md")}>
           {compare && canCompare && before && <ReceiptCard data={before.data} title="Before" rev={before.rev} muted />}
           <ReceiptCard data={after.data} title={compare && canCompare ? "After" : undefined} rev={after.rev} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+// "Open live site" + QR popover + caption; rendered only when a preview site URL exists.
+function LiveSite({ url }: { url: string }) {
+  const [open, setOpen] = useState(false);
+  const svg = useQrSvg(url, 180);
+  const pop = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (pop.current && !pop.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [open]);
+  return (
+    <div className="relative flex items-center gap-2" data-testid="live-site" ref={pop}>
+      <Button size="sm" variant="outline" asChild>
+        <a href={url} target="_blank" rel="noopener noreferrer" data-testid="open-live-site">
+          <ExternalLink />
+          Open live site
+        </a>
+      </Button>
+      <Button size="icon" variant="outline" className="size-7" aria-label="QR code for the live site" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+        <QrCode />
+      </Button>
+      <span className="font-mono text-[11px] text-muted-foreground">Live on Freestyle VM · updates ~2 s after edits</span>
+      {open && (
+        <div className="absolute left-0 top-9 z-30 flex flex-col items-center gap-2 rounded-lg border border-border bg-popover p-3 shadow-lg" role="dialog" aria-label="live site QR">
+          <div className="[&_svg]:size-[180px]" dangerouslySetInnerHTML={{ __html: svg }} />
+          <span className="max-w-[220px] truncate font-mono text-[11px] text-muted-foreground">{url.replace(/^https?:\/\//, "")}</span>
         </div>
       )}
     </div>

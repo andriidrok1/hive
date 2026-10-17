@@ -67,6 +67,7 @@ export interface AgentMeta {
 
 export interface UiState extends HiveState {
   connection: Connection;
+  previewSiteUrl?: string; // from GET /api/state when the Freestyle preview site is enabled
   agentMeta: Record<AgentId, AgentMeta>;
   conflictsOf: Record<IntentId, IntentConflict[]>; // from intent_declared, for the resolve buttons
   events: FeedEvent[]; // newest first
@@ -92,11 +93,17 @@ export const emptyHiveState: HiveState = {
   recentEvents: [],
 };
 
+export function previewSiteUrlOf(h: HiveState): string | undefined {
+  const u = (h as HiveState & { previewSiteUrl?: unknown }).previewSiteUrl;
+  return typeof u === "string" && u.length > 0 ? u : undefined;
+}
+
 export function initialUiState(h: HiveState = emptyHiveState): UiState {
   const base: UiState = {
     ...h,
     recentEvents: [],
     connection: "connecting",
+    previewSiteUrl: previewSiteUrlOf(h),
     agentMeta: {},
     conflictsOf: {},
     events: [],
@@ -129,6 +136,7 @@ export function resync(state: UiState, h: HiveState, opts: { reset?: boolean } =
     intents: h.intents,
     history: h.history,
     lastGreen: h.lastGreen,
+    previewSiteUrl: previewSiteUrlOf(h) ?? state.previewSiteUrl,
   };
   return [...h.recentEvents].sort((a, b) => a.id - b.id).reduce(reduce, merged);
 }

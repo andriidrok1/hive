@@ -43,6 +43,33 @@ describe("Preview", () => {
     expect(screen.getByLabelText("capabilities").textContent).toContain("receipt()");
   });
 
+  it("shows Open live site + caption only when the state carries previewSiteUrl", async () => {
+    const load = vi.fn(async () => summaryOnly);
+    const withSite: UiState = { ...stateAt(0), previewSiteUrl: "https://hive-demo.style.dev" };
+    const { unmount } = render(
+      <TooltipProvider>
+        <Preview state={withSite} mock={false} active load={load} />
+      </TooltipProvider>,
+    );
+    await waitFor(() => expect(load).toHaveBeenCalledTimes(1));
+    const link = screen.getByTestId("open-live-site") as HTMLAnchorElement;
+    expect(link.textContent).toContain("Open live site");
+    expect(link.href).toBe("https://hive-demo.style.dev/");
+    expect(link.target).toBe("_blank");
+    expect(screen.getByText("Live on Freestyle VM · updates ~2 s after edits")).toBeTruthy();
+    expect(screen.getByLabelText("QR code for the live site")).toBeTruthy();
+    unmount();
+
+    render(
+      <TooltipProvider>
+        <Preview state={stateAt(0)} mock={false} active load={load} />
+      </TooltipProvider>,
+    );
+    await waitFor(() => expect(load).toHaveBeenCalledTimes(2));
+    expect(screen.queryByTestId("live-site")).toBeNull();
+    expect(screen.queryByText(/Live on Freestyle VM/)).toBeNull();
+  });
+
   it("prefers receipt() verbatim when present and shows the capability values", () => {
     render(<ReceiptCard data={withReceipt} />);
     const lines = screen.getByTestId("receipt-lines").textContent ?? "";
