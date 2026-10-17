@@ -20,7 +20,7 @@ The demo project is a small checkout library with a real bug: percent promos pro
 
 The receipt is served live from the project files by a Freestyle VM at **https://hive-receipt-1045.style.dev** (while the demo server is up): the body is the project's own `orderSummary()` / `receipt()` output, broken values painted red, status chips underneath.
 
-What the feed shows during the run: `DECLARE` with promise and check, `CONFLICT same_target` / `contradiction` caught on declare, `BRIEFING symbol_changed` → `ACK adapted`, `MSG` between agents, `TESTS` on each agent's view, `CULPRIT` grid with `green+alex`, `all-andrii`, pairs. A recorded run is in `.hive/feed-demo-take3.log`-style logs after you run it yourself (`node scripts/watch-feed.mjs`).
+What the feed shows during the run: `DECLARE` with promise and check, `CONFLICT same_target` / `contradiction` caught on declare, `BRIEFING symbol_changed` → `ACK adapted`, `MSG` between agents, `TESTS` on each agent's view, `CULPRIT` grid with `green+alex`, `all-andrii`, pairs. `node scripts/watch-feed.mjs` prints this feed in readable form and writes it to `.hive/feed.log`.
 
 ## Why
 
