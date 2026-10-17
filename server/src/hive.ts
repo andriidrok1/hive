@@ -1,9 +1,8 @@
 // createHive: builds every module, wires store.onChange -> History + CallGraph + ChangeWatcher,
 // saves the green baseline, creates the AgentManager and the Fastify app, and supports reset(mode).
 //
-// Core, coord and the agent loop (@hive/agent) are imported directly. The runner's TestOrchestrator
-// is injected (HiveModules) against the structural interface in api/deps.ts until brief 04 lands;
-// index.ts passes the real class once it exists and the fake otherwise.
+// Core, coord, runner and the agent loop (@hive/agent) are the real modules. Tests may swap the
+// TestOrchestrator through `modules` (api/fakes.ts) to keep runs fast and deterministic.
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import type { FeedEventBody, HiveMode, LLM, Runner } from "@hive/shared";
@@ -11,6 +10,7 @@ import { runAgent as realRunAgent } from "@hive/agent";
 import { createEmitter } from "./emit.js";
 import { History, ProjectStore, ReadLog } from "./core/index.js";
 import { analyzeFile, BriefingQueue, CallGraph, ChangeWatcher, IntentRegistry, Mailbox } from "./coord/index.js";
+import { CulpritFinder, TestOrchestrator } from "./runner/index.js";
 import { buildApp, type BuiltApp } from "./api/app.js";
 import type {
   BriefingQueueLike,
@@ -50,7 +50,10 @@ export interface CreateHiveOptions {
   runner: Runner;
   /** An LLM, or a factory that receives the feed emit function (OpenAILLM emits llm_call for checks). */
   llm: LLM | ((emit: OnEvent) => LLM);
-  modules: HiveModules;
+  /** Overrides for tests; by default the real runner TestOrchestrator (+ CulpritFinder) is used. */
+  modules?: HiveModules;
+  /** Passed to the real TestOrchestrator (quiet period before snapshotting, default 1000 ms). */
+  orchestrator?: { quietMs?: number; maxQuietWaitMs?: number; maxParallel?: number };
   /** Defaults to runAgent from @hive/agent; tests inject a scripted one. */
   runAgent?: RunAgentFn;
   model?: string;
@@ -86,7 +89,16 @@ export function createHive(opts: CreateHiveOptions): Hive {
     const intents = new IntentRegistry({ llm, graph, reads, briefings, onEvent: emit, mode });
     const watcher = new ChangeWatcher({ llm, graph, reads, intents, briefings, onEvent: emit, mode });
     const mailbox = new Mailbox({ briefings, onEvent: emit });
-    const orchestrator = new m.TestOrchestrator({ store, history, intents, briefings, reads, graph, runner: opts.runner, onEvent: emit, mode });
+    const orchestratorDeps = { store, history, intents, briefings, reads, graph, runner: opts.runner, onEvent: emit, mode };
+    const o = opts.orchestrator ?? {};
+    const orchestrator: TestOrchestratorLike = m
+      ? new m.TestOrchestrator(orchestratorDeps)
+      : new TestOrchestrator({
+          ...orchestratorDeps,
+          culprit: new CulpritFinder(opts.runner, o.maxParallel ?? 8),
+          ...(o.quietMs !== undefined ? { quietMs: o.quietMs } : {}),
+          ...(o.maxQuietWaitMs !== undefined ? { maxQuietWaitMs: o.maxQuietWaitMs } : {}),
+        });
 
     // The only subscription to store.onChange: History records edits, CallGraph re-analyzes, ChangeWatcher briefs.
     store.onChange((c) => {
