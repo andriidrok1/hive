@@ -99,8 +99,8 @@ export function App({ mockStepMs }: { mockStepMs?: number } = {}) {
           <div className="grid min-h-0 min-w-0 grid-cols-[240px_minmax(0,1fr)_400px]">
             <ProjectPanel files={state.files} intents={state.intents} selected={path} onSelect={setSelected} />
             <EditorPane state={state} mock={mock} humanId={humanId} path={path} onSelect={setSelected} />
-            <section className="grid min-h-0 min-w-0 grid-rows-[minmax(0,1fr)] overflow-hidden border-l border-border bg-panel">
-              <Tabs value={main} onValueChange={(v) => setMain(v === "activity" ? "activity" : "agents")} className="min-h-0">
+            <section className="grid min-h-0 min-w-0 grid-cols-[minmax(0,1fr)] grid-rows-[minmax(0,1fr)] overflow-hidden border-l border-border bg-panel">
+              <Tabs value={main} onValueChange={(v) => setMain(v === "activity" ? "activity" : "agents")} className="min-h-0 min-w-0">
                 <TabsList className="h-11 px-3">
                   <TabsTrigger value="agents" className="h-11" onClick={() => setMain("agents")}>
                     Agents
@@ -116,7 +116,7 @@ export function App({ mockStepMs }: { mockStepMs?: number } = {}) {
                   </Button>
                 </TabsList>
 
-                <TabsContent value="agents" className="grid min-h-0 grid-rows-[minmax(0,1fr)_auto]">
+                <TabsContent value="agents" className="grid min-h-0 min-w-0 grid-rows-[minmax(0,1fr)_auto]">
                   <ScrollArea className="h-full">
                     <div className="flex flex-col gap-2 p-3" aria-label="agents">
                       {state.agents.length === 0 && <div className="px-1 py-3 text-xs text-muted-foreground">No agents yet. Start one with New agent, or open ?mock=1 for the scripted demo.</div>}
@@ -152,9 +152,9 @@ export function App({ mockStepMs }: { mockStepMs?: number } = {}) {
                   <ChatBox agents={state.agents} target={chatTarget} onTarget={setChatAgent} humanId={humanId} />
                 </TabsContent>
 
-                <TabsContent value="activity" className="min-h-0">
+                <TabsContent value="activity" className="min-h-0 min-w-0">
                   {/* Controlled sub-tabs; onClick keeps plain click events (and fireEvent.click) working. */}
-                  <Tabs value={sub} onValueChange={(v) => setSub(SUBS.includes(v as Sub) ? (v as Sub) : "feed")} className="h-full min-h-0">
+                  <Tabs value={sub} onValueChange={(v) => setSub(SUBS.includes(v as Sub) ? (v as Sub) : "feed")} className="h-full min-h-0 min-w-0">
                     <TabsList className="h-9 px-2">
                       <TabsTrigger value="feed" onClick={() => setSub("feed")}>
                         <Rss />
