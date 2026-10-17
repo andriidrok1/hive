@@ -1,0 +1,89 @@
+diff --git a/src/format.ts b/src/format.ts
+index 76427ac..76db28e 100644
+--- a/src/format.ts
++++ b/src/format.ts
+@@ -1,5 +1,5 @@
+ /** Formats whole cents as a dollar string: 1234 -> "$12.34". */
+-export function formatPrice(cents: number): string {
++export function formatCents(cents: number): string {
+   const dollars = Math.floor(cents / 100);
+   const rest = cents % 100;
+   return `$${dollars}.${String(rest).padStart(2, "0")}`;
+diff --git a/src/order.ts b/src/order.ts
+index 2c5360c..110fbd2 100644
+--- a/src/order.ts
++++ b/src/order.ts
+@@ -1,5 +1,5 @@
+ import { calculateTotal } from "./checkout.js";
+-import { formatPrice } from "./format.js";
++import { formatCents } from "./format.js";
+ import type { Item, Promo } from "./types.js";
+ 
+ export interface OrderSummary {
+@@ -15,10 +15,10 @@ export function orderSummary(items: Item[], promo?: Promo): OrderSummary {
+   const total = calculateTotal(items, promo);
+   const discount = sub - total;
+ 
+-  const lines = items.map((item) => `${item.sku} x${item.qty} ${formatPrice(item.priceCents * item.qty)}`);
+-  lines.push(`Subtotal ${formatPrice(sub)}`);
+-  if (discount > 0) lines.push(`Discount -${formatPrice(discount)}`);
+-  lines.push(`Total ${formatPrice(total)}`);
++  const lines = items.map((item) => `${item.sku} x${item.qty} ${formatCents(item.priceCents * item.qty)}`);
++  lines.push(`Subtotal ${formatCents(sub)}`);
++  if (discount > 0) lines.push(`Discount -${formatCents(discount)}`);
++  lines.push(`Total ${formatCents(total)}`);
+ 
+   return {
+     subtotal: sub,
+diff --git a/src/receipt.ts b/src/receipt.ts
+new file mode 100644
+index 0000000..3ca1580
+--- /dev/null
++++ b/src/receipt.ts
+@@ -0,0 +1,7 @@
++import { formatCents } from "./format.js";
++import type { Item } from "./types.js";
++
++/** One receipt line with unit price and line total: "pen x2 @ $2.50 = $5.00". */
++export function receiptLine(item: Item): string {
++  return `${item.sku} x${item.qty} @ ${formatCents(item.priceCents)} = ${formatCents(item.priceCents * item.qty)}`;
++}
+diff --git a/test/format.test.ts b/test/format.test.ts
+index f6019e3..3763cda 100644
+--- a/test/format.test.ts
++++ b/test/format.test.ts
+@@ -1,12 +1,12 @@
+ import { describe, expect, it } from "vitest";
+-import { formatPrice } from "../src/format.js";
++import { formatCents } from "../src/format.js";
+ 
+-describe("formatPrice", () => {
++describe("formatCents", () => {
+   it("formats dollars and cents", () => {
+-    expect(formatPrice(1234)).toBe("$12.34");
++    expect(formatCents(1234)).toBe("$12.34");
+   });
+ 
+   it("pads cents to two digits", () => {
+-    expect(formatPrice(1005)).toBe("$10.05");
++    expect(formatCents(1005)).toBe("$10.05");
+   });
+ });
+diff --git a/test/receipt.test.ts b/test/receipt.test.ts
+new file mode 100644
+index 0000000..15192e4
+--- /dev/null
++++ b/test/receipt.test.ts
+@@ -0,0 +1,12 @@
++import { describe, expect, it } from "vitest";
++import { receiptLine } from "../src/receipt.js";
++
++describe("receiptLine", () => {
++  it("shows unit price and line total", () => {
++    expect(receiptLine({ sku: "pen", priceCents: 250, qty: 2 })).toBe("pen x2 @ $2.50 = $5.00");
++  });
++
++  it("works for a single unit", () => {
++    expect(receiptLine({ sku: "mug", priceCents: 1000, qty: 1 })).toBe("mug x1 @ $10.00 = $10.00");
++  });
++});

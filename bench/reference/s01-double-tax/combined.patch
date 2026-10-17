@@ -1,0 +1,175 @@
+diff --git a/src/checkout.ts b/src/checkout.ts
+index b81225e..1bff1a5 100644
+--- a/src/checkout.ts
++++ b/src/checkout.ts
+@@ -1,4 +1,5 @@
+ import { applyDiscount } from "./discount.js";
++import { applyTax } from "./tax.js";
+ import type { Item, Promo } from "./types.js";
+ 
+ /** Sum of price × qty over all lines, in cents. */
+@@ -6,7 +7,7 @@ export function subtotal(items: Item[]): number {
+   return items.reduce((sum, item) => sum + item.priceCents * item.qty, 0);
+ }
+ 
+-/** Subtotal minus the promo discount, in cents. Tax is not included. */
+-export function calculateTotal(items: Item[], promo?: Promo): number {
+-  return applyDiscount(subtotal(items), promo);
++/** Final price the customer pays, in cents: subtotal minus the promo discount, plus sales tax for `state` (default CA). */
++export function calculateTotal(items: Item[], promo?: Promo, state = "CA"): number {
++  return applyTax(applyDiscount(subtotal(items), promo), state);
+ }
+diff --git a/src/order.ts b/src/order.ts
+index 2c5360c..9c7bb8e 100644
+--- a/src/order.ts
++++ b/src/order.ts
+@@ -1,28 +1,34 @@
+-import { calculateTotal } from "./checkout.js";
++import { calculateTotal, subtotal } from "./checkout.js";
++import { applyDiscount } from "./discount.js";
+ import { formatPrice } from "./format.js";
+ import type { Item, Promo } from "./types.js";
+ 
+ export interface OrderSummary {
+   subtotal: number;
+   discount: number;
++  tax: number;
+   total: number;
+   lines: string[];
+ }
+ 
+-/** Human-readable receipt: one line per item, then subtotal, discount (if any) and total. */
+-export function orderSummary(items: Item[], promo?: Promo): OrderSummary {
+-  const sub = calculateTotal(items);
+-  const total = calculateTotal(items, promo);
+-  const discount = sub - total;
++/** Human-readable receipt: one line per item, then subtotal, discount (if any), tax and total (which includes tax). */
++export function orderSummary(items: Item[], promo?: Promo, state = "CA"): OrderSummary {
++  const sub = subtotal(items);
++  const beforeTax = applyDiscount(sub, promo);
++  const discount = sub - beforeTax;
++  const total = calculateTotal(items, promo, state);
++  const tax = total - beforeTax;
+ 
+   const lines = items.map((item) => `${item.sku} x${item.qty} ${formatPrice(item.priceCents * item.qty)}`);
+   lines.push(`Subtotal ${formatPrice(sub)}`);
+   if (discount > 0) lines.push(`Discount -${formatPrice(discount)}`);
++  lines.push(`Tax ${formatPrice(tax)}`);
+   lines.push(`Total ${formatPrice(total)}`);
+ 
+   return {
+     subtotal: sub,
+     discount,
++    tax,
+     total,
+     lines,
+   };
+diff --git a/test/checkout.test.ts b/test/checkout.test.ts
+index 9a3dfd5..2dd8ed5 100644
+--- a/test/checkout.test.ts
++++ b/test/checkout.test.ts
+@@ -18,19 +18,23 @@ describe("subtotal", () => {
+ });
+ 
+ describe("calculateTotal", () => {
+-  it("equals the subtotal without a promo", () => {
+-    expect(calculateTotal(items)).toBe(1500);
++  it("equals the subtotal plus CA tax without a promo", () => {
++    expect(calculateTotal(items)).toBe(1609);
+   });
+ 
+-  it("applies a percent promo", () => {
+-    expect(calculateTotal(items, { code: "TEN", kind: "percent", value: 10 })).toBe(1350);
++  it("applies a percent promo before tax", () => {
++    expect(calculateTotal(items, { code: "TEN", kind: "percent", value: 10 })).toBe(1448);
+   });
+ 
+-  it("applies a fixed promo", () => {
+-    expect(calculateTotal(items, { code: "OFF500", kind: "fixed", value: 500 })).toBe(1000);
++  it("applies a fixed promo before tax", () => {
++    expect(calculateTotal(items, { code: "OFF500", kind: "fixed", value: 500 })).toBe(1073);
+   });
+ 
+-  it("does not include tax", () => {
+-    expect(calculateTotal([{ sku: "tv", priceCents: 100000, qty: 1 }])).toBe(100000);
++  it("includes tax for the given state", () => {
++    expect(calculateTotal([{ sku: "tv", priceCents: 100000, qty: 1 }], undefined, "NY")).toBe(104000);
++  });
++
++  it("adds no tax in Oregon", () => {
++    expect(calculateTotal(items, undefined, "OR")).toBe(1500);
+   });
+ });
+diff --git a/test/order-tax.test.ts b/test/order-tax.test.ts
+new file mode 100644
+index 0000000..ec68598
+--- /dev/null
++++ b/test/order-tax.test.ts
+@@ -0,0 +1,28 @@
++import { describe, expect, it } from "vitest";
++import { orderSummary } from "../src/order.js";
++import type { Item } from "../src/types.js";
++
++const items: Item[] = [{ sku: "mug", priceCents: 1000, qty: 1 }];
++
++describe("orderSummary tax line", () => {
++  it("adds a tax line and taxes the total", () => {
++    const summary = orderSummary(items, undefined, "NY");
++    expect(summary.tax).toBe(40);
++    expect(summary.total).toBe(1040);
++    expect(summary.lines).toEqual(["mug x1 $10.00", "Subtotal $10.00", "Tax $0.40", "Total $10.40"]);
++  });
++
++  it("taxes the discounted total", () => {
++    const summary = orderSummary(items, { code: "TEN", kind: "percent", value: 10 }, "CA");
++    expect(summary.tax).toBe(65);
++    expect(summary.total).toBe(965);
++    expect(summary.lines).toEqual(["mug x1 $10.00", "Subtotal $10.00", "Discount -$1.00", "Tax $0.65", "Total $9.65"]);
++  });
++
++  it("defaults to California like calculateTotal", () => {
++    const summary = orderSummary(items);
++    expect(summary.tax).toBe(73);
++    expect(summary.total).toBe(1073);
++    expect(summary.lines).toContain("Tax $0.73");
++  });
++});
+diff --git a/test/order.test.ts b/test/order.test.ts
+index 76e237e..23089ea 100644
+--- a/test/order.test.ts
++++ b/test/order.test.ts
+@@ -12,26 +12,29 @@ describe("orderSummary", () => {
+     const summary = orderSummary(items);
+     expect(summary.subtotal).toBe(1500);
+     expect(summary.discount).toBe(0);
+-    expect(summary.total).toBe(1500);
+-    expect(summary.lines).toEqual(["mug x1 $10.00", "pen x2 $5.00", "Subtotal $15.00", "Total $15.00"]);
++    expect(summary.tax).toBe(109);
++    expect(summary.total).toBe(1609);
++    expect(summary.lines).toEqual(["mug x1 $10.00", "pen x2 $5.00", "Subtotal $15.00", "Tax $1.09", "Total $16.09"]);
+   });
+ 
+   it("shows the discount line with a promo", () => {
+     const summary = orderSummary(items, { code: "TEN", kind: "percent", value: 10 });
+     expect(summary.discount).toBe(150);
+-    expect(summary.total).toBe(1350);
++    expect(summary.tax).toBe(98);
++    expect(summary.total).toBe(1448);
+     expect(summary.lines).toEqual([
+       "mug x1 $10.00",
+       "pen x2 $5.00",
+       "Subtotal $15.00",
+       "Discount -$1.50",
+-      "Total $13.50",
++      "Tax $0.98",
++      "Total $14.48",
+     ]);
+   });
+ 
+   it("handles an empty cart", () => {
+     const summary = orderSummary([]);
+     expect(summary.total).toBe(0);
+-    expect(summary.lines).toEqual(["Subtotal $0.00", "Total $0.00"]);
++    expect(summary.lines).toEqual(["Subtotal $0.00", "Tax $0.00", "Total $0.00"]);
+   });
+ });

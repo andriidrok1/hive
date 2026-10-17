@@ -1,0 +1,75 @@
+diff --git a/src/checkout.ts b/src/checkout.ts
+index b81225e..dbf7b22 100644
+--- a/src/checkout.ts
++++ b/src/checkout.ts
+@@ -6,7 +6,7 @@ export function subtotal(items: Item[]): number {
+   return items.reduce((sum, item) => sum + item.priceCents * item.qty, 0);
+ }
+ 
+-/** Subtotal minus the promo discount, in cents. Tax is not included. */
++/** Subtotal minus the promo discount, rounded half up to whole cents. Tax is not included. */
+ export function calculateTotal(items: Item[], promo?: Promo): number {
+-  return applyDiscount(subtotal(items), promo);
++  return Math.round(applyDiscount(subtotal(items), promo));
+ }
+diff --git a/src/tax.ts b/src/tax.ts
+index 5ab7de9..b1ee602 100644
+--- a/src/tax.ts
++++ b/src/tax.ts
+@@ -1,3 +1,7 @@
++import { subtotal } from "./checkout.js";
++import { applyDiscount } from "./discount.js";
++import type { Item, Promo } from "./types.js";
++
+ /** Sales tax rate per US state code. */
+ export const TAX_RATES: Record<string, number> = {
+   CA: 0.0725,
+@@ -12,3 +16,8 @@ export function applyTax(totalCents: number, state: string): number {
+   if (rate === undefined) throw new Error(`Unknown state: ${state}`);
+   return Math.round(totalCents * (1 + rate));
+ }
++
++/** Final taxed price of a cart: tax applies to the exact discounted amount, rounding happens once. */
++export function totalWithTax(items: Item[], promo: Promo | undefined, state: string): number {
++  return applyTax(applyDiscount(subtotal(items), promo), state);
++}
+diff --git a/test/checkout.test.ts b/test/checkout.test.ts
+index 9a3dfd5..cc5f97d 100644
+--- a/test/checkout.test.ts
++++ b/test/checkout.test.ts
+@@ -30,6 +30,10 @@ describe("calculateTotal", () => {
+     expect(calculateTotal(items, { code: "OFF500", kind: "fixed", value: 500 })).toBe(1000);
+   });
+ 
++  it("rounds fractional cents from percent promos half up", () => {
++    expect(calculateTotal([{ sku: "gum", priceCents: 25, qty: 1 }], { code: "HALF", kind: "percent", value: 50 })).toBe(13);
++  });
++
+   it("does not include tax", () => {
+     expect(calculateTotal([{ sku: "tv", priceCents: 100000, qty: 1 }])).toBe(100000);
+   });
+diff --git a/test/total-with-tax.test.ts b/test/total-with-tax.test.ts
+new file mode 100644
+index 0000000..aa67837
+--- /dev/null
++++ b/test/total-with-tax.test.ts
+@@ -0,0 +1,19 @@
++import { describe, expect, it } from "vitest";
++import { totalWithTax } from "../src/tax.js";
++import type { Item } from "../src/types.js";
++
++const gum: Item[] = [{ sku: "gum", priceCents: 25, qty: 1 }];
++
++describe("totalWithTax", () => {
++  it("taxes the discounted total", () => {
++    expect(totalWithTax([{ sku: "mug", priceCents: 1000, qty: 1 }], { code: "TEN", kind: "percent", value: 10 }, "NY")).toBe(936);
++  });
++
++  it("rounds once: 12.5 cents with 4% tax is 13 cents", () => {
++    expect(totalWithTax(gum, { code: "HALF", kind: "percent", value: 50 }, "NY")).toBe(13);
++  });
++
++  it("charges no tax in Oregon", () => {
++    expect(totalWithTax(gum, undefined, "OR")).toBe(25);
++  });
++});
