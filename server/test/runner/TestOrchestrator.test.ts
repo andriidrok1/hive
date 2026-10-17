@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { History, ProjectStore, ReadLog } from "../../src/core/index.js";
 import { BriefingQueue, CallGraph, IntentRegistry } from "../../src/coord/index.js";
 import { CulpritFinder } from "../../src/runner/CulpritFinder.js";
-import { checkTestSource, CHECK_TEST_PATH, classifyCheck, exportedValueNames, TestOrchestrator, type TestOrchestratorDeps } from "../../src/runner/TestOrchestrator.js";
+import { checkTestSource, CHECK_TEST_PATH, classifyCheck, exportedValueNames, isTestFile, TestOrchestrator, type TestOrchestratorDeps } from "../../src/runner/TestOrchestrator.js";
 import { LocalRunner } from "../../src/runner/LocalRunner.js";
 import { applyAll, breakDiscount, dependentPair, harmlessFormatChange, taxInCalculateTotal, taxLineInOrderSummary } from "./fixtures/changeSets.js";
 import { DEMO_APP_FILES } from "./fixtures/demoApp.js";
@@ -417,6 +417,28 @@ describe("TestOrchestrator", () => {
     expect(classifyCheck(ok)).toBe("ok");
     expect(ref.failures[0]!.message).toContain("items is not defined");
   }, 90_000);
+
+  it("9f. an intent targeting a test file skips its check: suite only, verified", async () => {
+    const cs = { ...harmlessFormatChange(), files: ["test/format.test.ts"] };
+    const t = setup({
+      files: DEMO_APP_FILES,
+      changeSets: [cs],
+      intents: [intentOf(cs, { target: { file: "test/format.test.ts", symbol: "formatPrice" }, action: "add", check: `expect(formatPrice(5)).toBe("$0.05");` })],
+      isGreen: (files) => !(CHECK_TEST_PATH in files), // a check run would be red
+    });
+    await t.orchestrator.onIntentFinished("A1");
+    expect(t.calls.map((c) => c.filter)).toEqual([undefined]);
+    expect(CHECK_TEST_PATH in t.calls[0]!.files).toBe(false);
+    expect(t.intents.statuses).toEqual([{ id: "A1", status: "verified" }]);
+    expect(t.briefings.all).toEqual([]);
+    expect(t.events.map((e) => e.type)).toEqual(["test_run_started", "test_run_finished"]);
+    expect((t.events[0] as Extract<FeedEventBody, { type: "test_run_started" }>).reason).toContain("intent A1 finished");
+    expect(isTestFile("test/order.test.ts")).toBe(true);
+    expect(isTestFile("src/order.test.ts")).toBe(true);
+    expect(isTestFile("src/__tests__/x.spec.tsx")).toBe(true);
+    expect(isTestFile("src/order.ts")).toBe(false);
+    expect(isTestFile("src/testing.ts")).toBe(false);
+  });
 
   it("9b. check passes -> suite runs next and the intent is verified", async () => {
     const cs = harmlessFormatChange();
