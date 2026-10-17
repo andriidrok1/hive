@@ -237,8 +237,18 @@ async function execute<T extends ToolName>(ctx: HiveContext, h: ToolHandlers, ag
   const d = ctx.deps;
   const store = h.storeFor(agentId);
   switch (tool) {
-    case "list_files":
-      return { files: store.listFiles() } as ToolResults[T];
+    case "list_files": {
+      const files = store.listFiles().map((f) => {
+        const active = activeIntentsFor(d, f.path);
+        if (active.length === 0) return f;
+        return {
+          ...f,
+          activeIntents: active.map((i) => ({ id: i.id, agentId: i.agentId, symbol: i.symbol })),
+          owners: [...new Set(active.map((i) => i.humanId))],
+        };
+      });
+      return { files } as ToolResults[T];
+    }
 
     case "read_file": {
       const a = args as ToolArgs["read_file"];
@@ -260,7 +270,15 @@ async function execute<T extends ToolName>(ctx: HiveContext, h: ToolHandlers, ag
       }
       d.reads.record(agentId, a.path, file.rev, symbols.map((s) => s.name));
       d.emitter.emit({ type: "file_read", agentId, path: a.path, rev: file.rev });
-      return { path: a.path, rev: file.rev, content, symbols } as ToolResults[T];
+      const activeIntents = activeIntentsFor(d, a.path);
+      const out: ToolResults["read_file"] & { activeIntents?: ActiveIntent[]; note?: string } = { path: a.path, rev: file.rev, content, symbols };
+      if (activeIntents.length > 0) {
+        out.activeIntents = activeIntents;
+        out.note = activeIntents
+          .map((i) => `${i.agentId} is working on ${i.symbol} here (${i.id}, ${i.status}): ${i.what}. Promised: ${i.output}.`)
+          .join(" ");
+      }
+      return out as ToolResults[T];
     }
 
     case "declare_intent": {
@@ -359,6 +377,26 @@ async function execute<T extends ToolName>(ctx: HiveContext, h: ToolHandlers, ag
     default:
       throw new ToolError("BAD_ARGS", `unknown tool ${String(tool)}`);
   }
+}
+
+export interface ActiveIntent {
+  id: IntentId;
+  agentId: AgentId;
+  humanId: string;
+  symbol: string;
+  status: "approved" | "in_progress" | "conflict";
+  what: string;
+  output: string;
+}
+
+const ACTIVE_FOR_PRESENCE = new Set(["approved", "in_progress", "conflict"]);
+
+/** Presence: live intents (any agent, the caller included) whose target is in this file. */
+export function activeIntentsFor(d: HiveContext["deps"], path: string): ActiveIntent[] {
+  return d.intents
+    .list()
+    .filter((i) => i.target.file === path && ACTIVE_FOR_PRESENCE.has(i.status))
+    .map((i) => ({ id: i.id, agentId: i.agentId, humanId: i.humanId, symbol: i.target.symbol, status: i.status as ActiveIntent["status"], what: i.what, output: i.output }));
 }
 
 /** A filter that selects no test must not count as green: vitest reports 0 passed / 0 failed and exit 0. */
