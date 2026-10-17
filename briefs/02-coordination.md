@@ -23,7 +23,7 @@ Order:
 1. Validate: `what` 5..200 chars, `output` 10..300 chars and not vague (reject outputs equal to or containing only words like "works", "done", "fixed", "updated" → throw a `BAD_ARGS` error the API maps to a tool error).
 2. Mode `naive` or `isolated`: approve immediately, no briefings.
 3. Same target: another active intent (`approved|in_progress`) on the same `file+symbol` by another agent → conflict `same_target`.
-4. Contradiction: collect active intents of other agents whose target is the same symbol, a caller of it, or a callee of it (via CallGraph), plus finished `verified` intents on those symbols (their outputs are standing contracts). If any, one LLM call with system prompt "You check if promised behaviors contradict. Answer JSON {conflict: boolean, with: string[], reason: string}." Conflict → `contradiction`.
+4. Contradiction: collect other agents' intents in `approved | in_progress | done | verified` whose target is the same symbol, a caller of it, or a callee of it (via CallGraph); `done` counts because between `finish_intent` and the green test run the intent is still a standing promise. If any, one LLM call with system prompt "You check if promised behaviors contradict. Answer JSON {conflict: boolean, with: string[], reason: string}." Conflict → `contradiction`.
 5. Status `conflict` if any conflict, else `approved`. Both agents involved get an `intent_conflict` briefing (requiresAck true) on conflict.
 6. Dependents: readers of the target symbol + owners of active intents on callers. Each gets an `intent_declared` briefing (requiresAck true) with the promised output.
 7. Emit `intent_declared`.
@@ -43,7 +43,8 @@ Order:
 9. No contradiction when FakeLLM says false → approved.
 10. Dependents: agent B read `calculateTotal` at rev 2; A declares a change to it → B gets `intent_declared` with requiresAck.
 11. `canEdit`: wrong owner, not approved, unknown id; ok for `approved` and `in_progress`.
-11b. Re-approval: A and B conflict (`same_target`); `setStatus(A, "cancelled")` → B becomes `approved` and an `intent_status` event is emitted. Same when A goes `done`. If B also conflicts with a still-active C, B stays `conflict`.
+11b. Re-approval: A and B conflict (`same_target`); `setStatus(A, "cancelled")` → B becomes `approved`, an `intent_status` event is emitted, and B's owner gets an `intent_conflict` briefing (requiresAck false) saying it is approved now. Same when A goes `done`. If B also conflicts with a still-active C, B stays `conflict`. `resolveConflict(human, keep, cancel)` briefs both owners the same way.
+11d. Events: `BriefingQueue` constructed with `{ onEvent }` emits `briefing_sent` on push and `briefing_acked` on ack; `IntentRegistry` emits `intent_status` on every `setStatus`. Nothing is emitted twice.
 11c. `Mailbox` constructed with `{ briefings, onEvent }` delivers each message as a `message` briefing to the recipient and emits `message_sent`.
 12. ChangeWatcher: rename `calculateTotal` → `calcTotal` by A; B read it earlier and calls it → B gets `symbol_changed` with `yourUsages` pointing at the call line; A gets nothing.
 13. ChangeWatcher ignores a comment-only change.

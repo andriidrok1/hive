@@ -86,7 +86,7 @@ class ReadLog {
   readersOf(path: string, symbol?: string): { agentId: AgentId; rev: Rev }[]
 }
 class History {
-  constructor(store: ProjectStore)
+  constructor(store: ProjectStore) // uses store only for allFiles()/rev in saveSnapshot; it does NOT subscribe to onChange (brief 03 wires recordEdit)
   beginIntent(intent: Intent): void
   recordEdit(change: { path: string; intentId?: IntentId; before: string; after: string; rev: Rev }): void // wired to store.onChange
   finishIntent(intentId: IntentId): ChangeSet          // edits[] = one small patch per edit, in order; patch = display diff
@@ -115,11 +115,15 @@ class IntentRegistry {
   setStatus(id: IntentId, status: IntentStatus): void
   canEdit(agentId: AgentId, intentId: IntentId): { ok: true } | { ok: false; code: "NO_INTENT" | "INTENT_NOT_APPROVED" | "NOT_YOUR_INTENT" } // ok for approved | in_progress
   // setStatus to done | verified | cancelled | failed also re-evaluates intents stuck in `conflict`
-  // because of this one: if no other active conflict remains, they become `approved` (emit intent_status).
+  // because of this one: if no other active conflict remains, they become `approved` (emit intent_status
+  // AND push an `intent_conflict` briefing with requiresAck=false to the owner saying it is now approved,
+  // otherwise the agent keeps waiting). resolveConflict does the same for both owners.
+  // Contradiction checks consider other agents' intents in approved | in_progress | done | verified.
   humanEditOutput(humanId: HumanId, intentId: IntentId, newOutput: string): void // contract change -> briefings
   resolveConflict(humanId: HumanId, keepIntentId: IntentId, cancelIntentId: IntentId): void
 }
 class BriefingQueue {
+  constructor(opts?: { onEvent?: (e: FeedEventBody) => void }) // emits briefing_sent on push, briefing_acked on ack
   push(b: Omit<Briefing, "id" | "createdAt">): Briefing
   takeUndelivered(agentId: AgentId): Briefing[]       // marks delivered
   unackedRequired(agentId: AgentId): Briefing[]
@@ -155,7 +159,9 @@ class TestOrchestrator {
 
 ### api and agents (brief 03)
 
-Wires everything, exposes HTTP and WebSocket, runs agent loops in-process via `@hive/agent`.
+Wires everything, exposes HTTP and WebSocket, runs agent loops in-process via `@hive/agent`. `createHive` calls `history.saveSnapshot(true)` right after `loadFiles`, so a green baseline (rev 0) always exists before the first test run; the runner treats a missing `lastGreen()` as rev 0 anyway.
+
+Web client connection, literally: `new WebsocketProvider(\`${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/yjs\`, "project", doc)` (the provider appends `/project` itself).
 
 ## HTTP API
 
@@ -218,7 +224,22 @@ Per-tool rules:
 
 ## Feed events
 
-See `FeedEvent` in `contracts.ts`. Every server module emits through one `emit(body)` function that adds `id` (monotonic) and `ts`, keeps the last 200 in memory, and broadcasts on `/ws/feed`. Anything that needs the full history of a run (the bench counters) must subscribe to `/ws/feed` for the whole run; `recentEvents` in `/api/state` is a tail, not a log.
+See `FeedEvent` in `contracts.ts`. Every server module emits through one `emit(body)` function that adds `id` (monotonic) and `ts`, keeps the last 200 in memory, and broadcasts on `/ws/feed`.
+
+**Exactly one producer per event type** (duplicates would double the UI counters):
+
+| Event | Emitted by |
+|---|---|
+| `edit_applied` | core `ProjectStore` (via its `onEvent`) |
+| `intent_declared`, `intent_status` (on every `setStatus`), `message_sent`, `human_action` | coord `IntentRegistry` / `Mailbox` |
+| `briefing_sent`, `briefing_acked` | coord `BriefingQueue` (constructor `(opts?: { onEvent })`) |
+| `file_read`, `agent_status`, `llm_call` for agents (`purpose: "agent:<agentId>"`) | api `tools.ts` / `AgentManager` |
+| `llm_call` for checks (`purpose: "check:<what>"`) | coord `OpenAILLM` via its timing callback |
+| `test_run_started/finished`, `culprit_*` | runner `TestOrchestrator` / `CulpritFinder` |
+
+`tools.ts` never re-emits what a module already emitted.
+
+HTTP status for tool calls is always 200 (errors travel in `ok: false`), except 404 for an unknown agent. Modules signal argument errors by throwing `Object.assign(new Error(msg), { code: "BAD_ARGS" })`; the API maps that to `ok: false, BAD_ARGS`. Anything that needs the full history of a run (the bench counters) must subscribe to `/ws/feed` for the whole run; `recentEvents` in `/api/state` is a tail, not a log.
 
 ## Demo app (brief 07)
 

@@ -4,6 +4,10 @@ You own `server/src/api/`, `server/src/agents/`, `server/src/index.ts`, `server/
 
 **Yjs sync is written by hand** (about 60 lines) in `server/src/api/yjsWs.ts`: on connection send `syncProtocol.writeSyncStep1`, handle incoming messages by type (`0` sync → `syncProtocol.readSyncMessage(decoder, encoder, doc, conn)`, reply if the encoder has content; `1` awareness → `awarenessProtocol.applyAwarenessUpdate`), broadcast `doc.on("update")` as sync step 2 updates (`syncProtocol.writeUpdate`) and awareness changes to all connections, clean up on close (`awarenessProtocol.removeAwarenessStates`). Use `lib0/encoding` and `lib0/decoding` (installed with yjs). This is the same wire protocol as y-websocket, so the stock `WebsocketProvider` client connects unchanged. Reason: `@y/websocket-server` bundles its own yjs 14 and cannot bind our `ProjectStore.ydoc`. Pass a `resolveActor` to `ProjectStore` that maps a transaction origin (the connection object you use as origin when applying remote updates) to the awareness user name.
 
+## Start unblocked (minute 0)
+
+The other server modules do not exist in your worktree yet, so `tsc -p server` would be red if you import them. Therefore: write `server/src/api/deps.ts` with **structural interfaces** copied from CONTRACTS.md (`ProjectStoreLike`, `IntentRegistryLike`, ...), make `buildApp(deps)`, `toolHandlers(deps)` and `AgentManager({ runAgent, ... })` depend only on those interfaces, and test them with small fakes. Write `hive.ts` and `index.ts` **last**, after `git merge main` at ~13:30 brings the real modules in. Until then `index.ts` may be a stub that boots `buildApp` with in-memory fakes so `npm run dev` works for the web brief.
+
 ## Goal
 
 One process that holds all state, exposes the agent tool API and the human/UI API from CONTRACTS.md, streams the feed, serves Yjs sync, and runs agent loops in-process.

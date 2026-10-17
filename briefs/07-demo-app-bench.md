@@ -12,7 +12,7 @@ TypeScript checkout module, integer cents everywhere, vitest tests. Keep it smal
 - `src/tax.ts`: `TAX_RATES` (CA 0.0725, NY 0.04, TX 0.0625, OR 0), `applyTax(totalCents, state)` = round(total × (1 + rate)).
 - `src/format.ts`: `formatPrice(cents)` → `"$12.34"`.
 - `src/order.ts`: `orderSummary(items, promo)` returns `{ subtotal, discount, total, lines: string[] }` using `calculateTotal` and `formatPrice` only. **It does not apply tax in the base project** (several scenarios have one agent add tax handling to it, and the other agent change `calculateTotal`; if the base already combined them, both agents would need to touch `order.ts` and the merge would not be clean).
-- `test/*.test.ts`: 12–20 tests covering each function and `orderSummary` end to end.
+- `test/*.test.ts`: 12–20 tests covering each function and `orderSummary` end to end. Tests import sources with the `.js` extension (`import { calculateTotal } from "../src/checkout.js"`), NodeNext requires it.
 - `package.json` is set (do not edit; `vitest` comes from the root). `npm test -w @hive/demo-app` green.
 - Keep `demo-app` free of a `vitest.config.*` and of `node_modules`: the runner copies its files elsewhere.
 
@@ -69,6 +69,10 @@ For each (scenario, variant, repeat), sequentially per server (one server = one 
 5. `POST /api/test { extraFiles: { [extraTests path]: content } }`.
 6. Record a row: scenario, variant, repeat, success, tests passed/failed, toolCalls, tokens in/out, wall ms, briefings sent, acks adapted, conflicts caught before code, culprit searches, culprit correct (the `culprit_found` report's owners equal `expectedCulprits`). Counters come from a `/ws/feed` subscription opened **before** `POST /api/agents` and kept for the whole run (`/api/state.recentEvents` is only a 200-event tail). Token and tool-call counts come from `llm_call` and `agent_status` events.
 Write `results/results.csv` and `results/summary.md` (success rate per variant, mean tokens, mean time, false alarms on controls).
+
+## Priority if time runs out
+
+Must: demo app; s01 and c01 with verified reference patches; `scenarios.test.ts` for scenarios that have a `reference/` folder; runner for one variant sequentially with CSV. Optional: the other six scenarios' reference patches (ship the JSON and extraTests anyway), `summary.md`, parallel servers.
 
 ## Tests (all required)
 
