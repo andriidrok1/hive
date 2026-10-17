@@ -57,6 +57,45 @@ export function summarize(rows: ResultRow[]): VariantSummary[] {
   });
 }
 
+export interface ScenarioSummary {
+  scenario: string;
+  variant: HiveMode;
+  conflict: boolean;
+  runs: number;
+  successes: number;
+  meanPassed: number;
+  meanFailed: number;
+  meanTokens: number;
+  meanWallMs: number;
+  meanBriefings: number;
+  meanConflictsCaught: number;
+  culpritCorrect: string; // "k/n" over runs that produced a culprit report, "-" when none
+}
+
+/** One entry per (scenario, variant) in first-seen order, aggregated over repeats. */
+export function summarizeScenarios(rows: ResultRow[]): ScenarioSummary[] {
+  const keys = [...new Set(rows.map((r) => `${r.scenario}\u0000${r.variant}`))];
+  return keys.map((key) => {
+    const [scenario, variant] = key.split("\u0000") as [string, HiveMode];
+    const rs = rows.filter((r) => r.scenario === scenario && r.variant === variant);
+    const reports = rs.filter((r) => r.culpritCorrect !== null);
+    return {
+      scenario,
+      variant,
+      conflict: rs[0]!.conflict,
+      runs: rs.length,
+      successes: rs.filter((r) => r.success).length,
+      meanPassed: mean(rs.map((r) => r.passed)),
+      meanFailed: mean(rs.map((r) => r.failed)),
+      meanTokens: mean(rs.map((r) => r.tokensIn + r.tokensOut)),
+      meanWallMs: mean(rs.map((r) => r.wallMs)),
+      meanBriefings: mean(rs.map((r) => r.briefingsSent)),
+      meanConflictsCaught: mean(rs.map((r) => r.conflictsCaught)),
+      culpritCorrect: reports.length ? `${reports.filter((r) => r.culpritCorrect === true).length}/${reports.length}` : "-",
+    };
+  });
+}
+
 const pct = (x: number) => `${Math.round(x * 100)}%`;
 const n0 = (x: number) => String(Math.round(x));
 
@@ -73,17 +112,13 @@ export function summaryMarkdown(rows: ResultRow[], meta: { startedAt: Date; args
     );
   }
   out.push(``, `## Per scenario`, ``);
-  const scenarios = [...new Set(rows.map((r) => r.scenario))];
-  const variants = sums.map((s) => s.variant);
-  out.push(`| scenario | ${variants.map((v) => `${v} success`).join(" | ")} |`);
-  out.push(`|---|${variants.map(() => "---").join("|")}|`);
-  for (const sc of scenarios) {
-    const cells = variants.map((v) => {
-      const rs = rows.filter((r) => r.scenario === sc && r.variant === v);
-      if (!rs.length) return "-";
-      return `${rs.filter((r) => r.success).length}/${rs.length}`;
-    });
-    out.push(`| ${sc} | ${cells.join(" | ")} |`);
+  out.push(`One row per scenario and variant, means over repeats.`, ``);
+  out.push(`| scenario | variant | success | passed/failed | tokens | wall s | briefings | conflicts caught | culprit correct |`);
+  out.push(`|---|---|---|---|---|---|---|---|---|`);
+  for (const s of summarizeScenarios(rows)) {
+    out.push(
+      `| ${s.scenario} | ${s.variant} | ${s.successes}/${s.runs} | ${s.meanPassed.toFixed(1)}/${s.meanFailed.toFixed(1)} | ${n0(s.meanTokens)} | ${(s.meanWallMs / 1000).toFixed(1)} | ${s.meanBriefings.toFixed(1)} | ${s.meanConflictsCaught.toFixed(1)} | ${s.culpritCorrect} |`,
+    );
   }
   const errors = rows.filter((r) => r.error);
   if (errors.length) {
