@@ -320,9 +320,11 @@ async function execute<T extends ToolName>(ctx: HiveContext, h: ToolHandlers, ag
       const view = agentView(ctx, agentId, store);
       d.emitter.emit({ type: "test_run_started", runId, rev, reason: `run_tests by ${agentId}${view.view ? " (own view)" : ""}` });
       try {
-        const result = await d.runner.runTests(view.files, a.filter ? { filter: a.filter } : {});
+        const raw = await d.runner.runTests(view.files, a.filter ? { filter: a.filter } : {});
+        const empty = emptyFilterNote(raw, a.filter);
+        const result: TestResult = empty ? { ...raw, ok: false, failures: [...raw.failures, { name: "filter", message: empty }] } : raw;
         d.emitter.emit({ type: "test_run_finished", runId, rev, result });
-        const out: RunTestsData = { ...result, note: view.note };
+        const out: RunTestsData = { ...result, note: empty ? `${empty} ${view.note}` : view.note };
         if (view.view) out.view = view.view;
         return out as ToolResults[T];
       } catch (err) {
@@ -357,6 +359,12 @@ async function execute<T extends ToolName>(ctx: HiveContext, h: ToolHandlers, ag
     default:
       throw new ToolError("BAD_ARGS", `unknown tool ${String(tool)}`);
   }
+}
+
+/** A filter that selects no test must not count as green: vitest reports 0 passed / 0 failed and exit 0. */
+export function emptyFilterNote(result: TestResult, filter: string | undefined): string | undefined {
+  if (!filter || result.passed + result.failed !== 0) return undefined;
+  return `filter '${filter}' matched no tests; run without filter or use a test-name regex.`;
 }
 
 export interface RunTestsView {

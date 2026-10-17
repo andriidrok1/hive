@@ -3,7 +3,7 @@ import type { FastifyInstance, FastifyReply } from "fastify";
 import { applyPatch, createPatch } from "diff";
 import type { HiveMode, HiveState, MergeResult, TestRequest, TestResult } from "@hive/shared";
 import type { HiveContext } from "./deps.js";
-import type { ToolHandlers } from "./tools.js";
+import { emptyFilterNote, type ToolHandlers } from "./tools.js";
 
 const MODES: readonly HiveMode[] = ["hive", "naive", "isolated"];
 
@@ -42,6 +42,8 @@ export async function runSuite(ctx: HiveContext, req: TestRequest, reason: strin
   let result: TestResult;
   try {
     result = await d.runner.runTests(files, req.filter ? { filter: req.filter } : {});
+    const empty = emptyFilterNote(result, req.filter);
+    if (empty) result = { ...result, ok: false, failures: [...result.failures, { name: "filter", message: empty }] };
   } catch (err) {
     result = { ok: false, passed: 0, failed: 0, failures: [{ name: "runner", message: err instanceof Error ? err.message : String(err) }], durationMs: 0 };
   }
