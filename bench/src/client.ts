@@ -43,8 +43,9 @@ export class HiveClient {
   reset(mode: HiveMode): Promise<unknown> {
     return this.json("POST", "/api/reset", { mode });
   }
-  startAgent(agentId: string, humanId: string, task: string): Promise<{ ok: boolean }> {
-    return this.json("POST", "/api/agents", { agentId, humanId, task });
+  /** `owns` (files the agent may edit) is sent in every variant so hive/naive/isolated get the same constraint. */
+  startAgent(agentId: string, humanId: string, task: string, owns?: string[]): Promise<{ ok: boolean }> {
+    return this.json("POST", "/api/agents", { agentId, humanId, task, ...(owns ? { owns } : {}) });
   }
   merge(): Promise<MergeResult> {
     return this.json<MergeResult>("POST", "/api/merge");
