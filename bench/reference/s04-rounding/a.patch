@@ -1,0 +1,29 @@
+diff --git a/src/checkout.ts b/src/checkout.ts
+index b81225e..dbf7b22 100644
+--- a/src/checkout.ts
++++ b/src/checkout.ts
+@@ -6,7 +6,7 @@ export function subtotal(items: Item[]): number {
+   return items.reduce((sum, item) => sum + item.priceCents * item.qty, 0);
+ }
+ 
+-/** Subtotal minus the promo discount, in cents. Tax is not included. */
++/** Subtotal minus the promo discount, rounded half up to whole cents. Tax is not included. */
+ export function calculateTotal(items: Item[], promo?: Promo): number {
+-  return applyDiscount(subtotal(items), promo);
++  return Math.round(applyDiscount(subtotal(items), promo));
+ }
+diff --git a/test/checkout.test.ts b/test/checkout.test.ts
+index 9a3dfd5..cc5f97d 100644
+--- a/test/checkout.test.ts
++++ b/test/checkout.test.ts
+@@ -30,6 +30,10 @@ describe("calculateTotal", () => {
+     expect(calculateTotal(items, { code: "OFF500", kind: "fixed", value: 500 })).toBe(1000);
+   });
+ 
++  it("rounds fractional cents from percent promos half up", () => {
++    expect(calculateTotal([{ sku: "gum", priceCents: 25, qty: 1 }], { code: "HALF", kind: "percent", value: 50 })).toBe(13);
++  });
++
+   it("does not include tax", () => {
+     expect(calculateTotal([{ sku: "tv", priceCents: 100000, qty: 1 }])).toBe(100000);
+   });

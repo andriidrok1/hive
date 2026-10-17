@@ -1,0 +1,63 @@
+diff --git a/src/discount.ts b/src/discount.ts
+index b89cce2..fa3a6d1 100644
+--- a/src/discount.ts
++++ b/src/discount.ts
+@@ -1,11 +1,11 @@
+ import type { Promo } from "./types.js";
+ 
+ /**
+- * Subtotal after the promo. "percent" takes value% off, "fixed" takes value cents off.
++ * Subtotal after the promo. "percent" takes value% off, "fixed" takes value dollars off.
+  * Never goes below 0. Percent promos may produce fractional cents; callers decide how to round.
+  */
+ export function applyDiscount(subtotalCents: number, promo?: Promo): number {
+   if (!promo) return subtotalCents;
+-  const discount = promo.kind === "percent" ? (subtotalCents * promo.value) / 100 : promo.value;
++  const discount = promo.kind === "percent" ? (subtotalCents * promo.value) / 100 : promo.value * 100;
+   return Math.max(0, subtotalCents - discount);
+ }
+diff --git a/src/types.ts b/src/types.ts
+index 1dc8ca4..3dc5aee 100644
+--- a/src/types.ts
++++ b/src/types.ts
+@@ -5,7 +5,7 @@ export interface Item {
+   qty: number;
+ }
+ 
+-/** A promo code. `value` is a percentage (0..100) for "percent" and cents for "fixed". */
++/** A promo code. `value` is a percentage (0..100) for "percent" and whole dollars for "fixed". */
+ export interface Promo {
+   code: string;
+   kind: "percent" | "fixed";
+diff --git a/test/checkout.test.ts b/test/checkout.test.ts
+index 9a3dfd5..aa523e9 100644
+--- a/test/checkout.test.ts
++++ b/test/checkout.test.ts
+@@ -27,7 +27,7 @@ describe("calculateTotal", () => {
+   });
+ 
+   it("applies a fixed promo", () => {
+-    expect(calculateTotal(items, { code: "OFF500", kind: "fixed", value: 500 })).toBe(1000);
++    expect(calculateTotal(items, { code: "OFF5", kind: "fixed", value: 5 })).toBe(1000);
+   });
+ 
+   it("does not include tax", () => {
+diff --git a/test/discount.test.ts b/test/discount.test.ts
+index 9825096..7a64a06 100644
+--- a/test/discount.test.ts
++++ b/test/discount.test.ts
+@@ -10,11 +10,11 @@ describe("applyDiscount", () => {
+     expect(applyDiscount(1000, { code: "TEN", kind: "percent", value: 10 })).toBe(900);
+   });
+ 
+-  it("takes a fixed amount of cents off", () => {
+-    expect(applyDiscount(1000, { code: "OFF250", kind: "fixed", value: 250 })).toBe(750);
++  it("takes a fixed amount of dollars off", () => {
++    expect(applyDiscount(1000, { code: "OFF2", kind: "fixed", value: 2 })).toBe(800);
+   });
+ 
+   it("never goes below zero", () => {
+-    expect(applyDiscount(200, { code: "BIG", kind: "fixed", value: 500 })).toBe(0);
++    expect(applyDiscount(200, { code: "BIG", kind: "fixed", value: 5 })).toBe(0);
+   });
+ });

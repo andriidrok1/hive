@@ -1,0 +1,22 @@
+{
+  "id": "c02-control-negative-and-count",
+  "title": "Control: negative prices format and an itemCount helper",
+  "conflict": false,
+  "agents": [
+    {
+      "agentId": "agent-andrii",
+      "humanId": "andrii",
+      "task": "Make formatPrice in src/format.ts handle negative amounts: formatPrice(-1234) must return \"-$12.34\" (positive values unchanged). Add a test."
+    },
+    {
+      "agentId": "agent-masha",
+      "humanId": "masha",
+      "task": "Add an exported helper itemCount(items: Item[]): number to src/checkout.ts that returns the sum of all qty values (0 for an empty cart). Add tests in test/checkout.test.ts."
+    }
+  ],
+  "startDelaysMs": { "agent-andrii": 0, "agent-masha": 20000 },
+  "expectedCulprits": [],
+  "acceptance": "npm test",
+  "extraTests": "test/c02.accept.test.ts",
+  "notes": "No conflict: independent functions in different files. Any conflict warning, culprit search or merge conflict here is a false alarm."
+}

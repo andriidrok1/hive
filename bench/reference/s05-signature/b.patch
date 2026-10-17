@@ -1,0 +1,37 @@
+diff --git a/src/order.ts b/src/order.ts
+index 2c5360c..73d286c 100644
+--- a/src/order.ts
++++ b/src/order.ts
+@@ -27,3 +27,8 @@ export function orderSummary(items: Item[], promo?: Promo): OrderSummary {
+     lines,
+   };
+ }
++
++/** The receipt's closing line: "TOTAL $15.00". */
++export function receiptTotalLine(items: Item[], promo?: Promo): string {
++  return `TOTAL ${formatPrice(calculateTotal(items, promo))}`;
++}
+diff --git a/test/receipt-total.test.ts b/test/receipt-total.test.ts
+new file mode 100644
+index 0000000..b0838ee
+--- /dev/null
++++ b/test/receipt-total.test.ts
+@@ -0,0 +1,18 @@
++import { describe, expect, it } from "vitest";
++import { receiptTotalLine } from "../src/order.js";
++import type { Item } from "../src/types.js";
++
++const items: Item[] = [
++  { sku: "mug", priceCents: 1000, qty: 1 },
++  { sku: "pen", priceCents: 250, qty: 2 },
++];
++
++describe("receiptTotalLine", () => {
++  it("shows the total", () => {
++    expect(receiptTotalLine(items)).toBe("TOTAL $15.00");
++  });
++
++  it("applies the promo", () => {
++    expect(receiptTotalLine(items, { code: "TEN", kind: "percent", value: 10 })).toBe("TOTAL $13.50");
++  });
++});

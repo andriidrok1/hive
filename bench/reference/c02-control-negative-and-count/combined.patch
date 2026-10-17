@@ -1,0 +1,70 @@
+diff --git a/src/checkout.ts b/src/checkout.ts
+index b81225e..679c6cd 100644
+--- a/src/checkout.ts
++++ b/src/checkout.ts
+@@ -10,3 +10,8 @@ export function subtotal(items: Item[]): number {
+ export function calculateTotal(items: Item[], promo?: Promo): number {
+   return applyDiscount(subtotal(items), promo);
+ }
++
++/** Number of units in the cart: the sum of all qty values. */
++export function itemCount(items: Item[]): number {
++  return items.reduce((sum, item) => sum + item.qty, 0);
++}
+diff --git a/src/format.ts b/src/format.ts
+index 76427ac..0f8548f 100644
+--- a/src/format.ts
++++ b/src/format.ts
+@@ -1,6 +1,8 @@
+-/** Formats whole cents as a dollar string: 1234 -> "$12.34". */
++/** Formats whole cents as a dollar string: 1234 -> "$12.34", -1234 -> "-$12.34". */
+ export function formatPrice(cents: number): string {
+-  const dollars = Math.floor(cents / 100);
+-  const rest = cents % 100;
+-  return `$${dollars}.${String(rest).padStart(2, "0")}`;
++  const sign = cents < 0 ? "-" : "";
++  const abs = Math.abs(cents);
++  const dollars = Math.floor(abs / 100);
++  const rest = abs % 100;
++  return `${sign}$${dollars}.${String(rest).padStart(2, "0")}`;
+ }
+diff --git a/test/checkout.test.ts b/test/checkout.test.ts
+index 9a3dfd5..6886007 100644
+--- a/test/checkout.test.ts
++++ b/test/checkout.test.ts
+@@ -1,5 +1,5 @@
+ import { describe, expect, it } from "vitest";
+-import { calculateTotal, subtotal } from "../src/checkout.js";
++import { calculateTotal, itemCount, subtotal } from "../src/checkout.js";
+ import type { Item } from "../src/types.js";
+ 
+ const items: Item[] = [
+@@ -34,3 +34,13 @@ describe("calculateTotal", () => {
+     expect(calculateTotal([{ sku: "tv", priceCents: 100000, qty: 1 }])).toBe(100000);
+   });
+ });
++
++describe("itemCount", () => {
++  it("sums quantities", () => {
++    expect(itemCount(items)).toBe(3);
++  });
++
++  it("is zero for an empty cart", () => {
++    expect(itemCount([])).toBe(0);
++  });
++});
+diff --git a/test/format.test.ts b/test/format.test.ts
+index f6019e3..be9b0be 100644
+--- a/test/format.test.ts
++++ b/test/format.test.ts
+@@ -6,6 +6,10 @@ describe("formatPrice", () => {
+     expect(formatPrice(1234)).toBe("$12.34");
+   });
+ 
++  it("formats negative amounts with a leading minus", () => {
++    expect(formatPrice(-1234)).toBe("-$12.34");
++  });
++
+   it("pads cents to two digits", () => {
+     expect(formatPrice(1005)).toBe("$10.05");
+   });

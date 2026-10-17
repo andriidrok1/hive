@@ -1,0 +1,22 @@
+{
+  "id": "s04-rounding",
+  "title": "Rounding twice",
+  "conflict": true,
+  "agents": [
+    {
+      "agentId": "agent-andrii",
+      "humanId": "andrii",
+      "task": "Percent promos can leave fractional cents. Make calculateTotal in src/checkout.ts always return whole cents by rounding half up with Math.round. Add a test: a 25-cent item with a 50% promo totals 13 cents."
+    },
+    {
+      "agentId": "agent-masha",
+      "humanId": "masha",
+      "task": "Add totalWithTax(items, promo, state) to src/tax.ts: the final taxed price, computed as applyTax(calculateTotal(items, promo), state) so the tax applies to the exact discounted amount and rounding happens once in applyTax. Add tests in test/total-with-tax.test.ts, including: a 25-cent item with a 50% promo in NY costs 13 cents."
+    }
+  ],
+  "startDelaysMs": { "agent-andrii": 0, "agent-masha": 20000 },
+  "expectedCulprits": ["agent-andrii", "agent-masha"],
+  "acceptance": "npm test",
+  "extraTests": "test/s04.accept.test.ts",
+  "notes": "12.5 cents: round once with 4% tax gives 13; round to 13 first and tax it gives 14. Correct merge: totalWithTax taxes applyDiscount(subtotal(items), promo), not the rounded calculateTotal."
+}

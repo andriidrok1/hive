@@ -17,6 +17,7 @@ export interface ScenarioCheck {
   a: VariantCheck;
   b: VariantCheck;
   ab: VariantCheck; // a then b, plus extraTests
+  ba: VariantCheck; // b then a: both orders must apply, which proves the hunks do not overlap
   combined: VariantCheck; // combined.patch, plus extraTests
 }
 
@@ -59,14 +60,15 @@ export async function checkScenario(scenario: Scenario, refFolder: string): Prom
   const a = join(refFolder, "a.patch");
   const b = join(refFolder, "b.patch");
   const combined = join(refFolder, "combined.patch");
-  const [base, ra, rb, rab, rc] = await Promise.all([
+  const [base, ra, rb, rab, rba, rc] = await Promise.all([
     checkVariant(scenario, "base", [], false, files),
     checkVariant(scenario, "a", [a], false, files),
     checkVariant(scenario, "b", [b], false, files),
     checkVariant(scenario, "ab", [a, b], true, files),
+    checkVariant(scenario, "ba", [b, a], true, files),
     checkVariant(scenario, "combined", [combined], true, files),
   ]);
-  return { base, a: ra, b: rb, ab: rab, combined: rc };
+  return { base, a: ra, b: rb, ab: rab, ba: rba, combined: rc };
 }
 
 /** Files touched by a unified diff (from the `+++ b/` headers; `/dev/null` for deletions is skipped). */

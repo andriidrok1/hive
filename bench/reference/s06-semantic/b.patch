@@ -1,0 +1,50 @@
+diff --git a/src/order.ts b/src/order.ts
+index 2c5360c..70fca77 100644
+--- a/src/order.ts
++++ b/src/order.ts
+@@ -9,13 +9,17 @@ export interface OrderSummary {
+   lines: string[];
+ }
+ 
+-/** Human-readable receipt: one line per item, then subtotal, discount (if any) and total. */
++/** Human-readable receipt: one line per item (negative qty = refund), then subtotal, discount (if any) and total. */
+ export function orderSummary(items: Item[], promo?: Promo): OrderSummary {
+   const sub = calculateTotal(items);
+   const total = calculateTotal(items, promo);
+   const discount = sub - total;
+ 
+-  const lines = items.map((item) => `${item.sku} x${item.qty} ${formatPrice(item.priceCents * item.qty)}`);
++  const lines = items.map((item) =>
++    item.qty < 0
++      ? `Refund ${item.sku} x${-item.qty} -${formatPrice(item.priceCents * -item.qty)}`
++      : `${item.sku} x${item.qty} ${formatPrice(item.priceCents * item.qty)}`,
++  );
+   lines.push(`Subtotal ${formatPrice(sub)}`);
+   if (discount > 0) lines.push(`Discount -${formatPrice(discount)}`);
+   lines.push(`Total ${formatPrice(total)}`);
+diff --git a/test/refunds.test.ts b/test/refunds.test.ts
+new file mode 100644
+index 0000000..a9bdeb7
+--- /dev/null
++++ b/test/refunds.test.ts
+@@ -0,0 +1,20 @@
++import { describe, expect, it } from "vitest";
++import { orderSummary } from "../src/order.js";
++import type { Item } from "../src/types.js";
++
++const cart: Item[] = [
++  { sku: "mug", priceCents: 1000, qty: 1 },
++  { sku: "pen", priceCents: 300, qty: -1 },
++];
++
++describe("refunds in orderSummary", () => {
++  it("shows a refund line", () => {
++    expect(orderSummary(cart).lines).toEqual(["mug x1 $10.00", "Refund pen x1 -$3.00", "Subtotal $7.00", "Total $7.00"]);
++  });
++
++  it("reduces subtotal and total", () => {
++    const summary = orderSummary(cart);
++    expect(summary.subtotal).toBe(700);
++    expect(summary.total).toBe(700);
++  });
++});

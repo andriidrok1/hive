@@ -23,11 +23,13 @@ for (const scenario of scenarios) {
       check = await checkScenario(scenario, ref);
     });
 
-    it("a.patch and b.patch touch disjoint files", () => {
+    it("a.patch and b.patch touch disjoint files, or at least disjoint hunks (both apply orders work)", () => {
       const a = new Set(patchFiles(join(ref, "a.patch")));
-      const b = patchFiles(join(ref, "b.patch"));
-      const overlap = b.filter((f) => a.has(f));
-      expect(overlap, `files touched by both patches: ${overlap.join(", ")}`).toEqual([]);
+      const shared = patchFiles(join(ref, "b.patch")).filter((f) => a.has(f));
+      if (shared.length > 0) {
+        expect(check.ba.applied, `shared files ${shared.join(", ")}; ${describeCheck(check.ba)}`).toBe(true);
+        expect(check.ba.result?.ok).toBe(check.ab.result?.ok);
+      }
     });
 
     it("base suite is green", () => {

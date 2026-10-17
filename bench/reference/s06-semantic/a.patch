@@ -1,0 +1,31 @@
+diff --git a/src/checkout.ts b/src/checkout.ts
+index b81225e..2ed7cc5 100644
+--- a/src/checkout.ts
++++ b/src/checkout.ts
+@@ -1,9 +1,9 @@
+ import { applyDiscount } from "./discount.js";
+ import type { Item, Promo } from "./types.js";
+ 
+-/** Sum of price × qty over all lines, in cents. */
++/** Sum of price × qty over all lines, in cents. Lines with qty <= 0 count as removed and are ignored. */
+ export function subtotal(items: Item[]): number {
+-  return items.reduce((sum, item) => sum + item.priceCents * item.qty, 0);
++  return items.reduce((sum, item) => (item.qty > 0 ? sum + item.priceCents * item.qty : sum), 0);
+ }
+ 
+ /** Subtotal minus the promo discount, in cents. Tax is not included. */
+diff --git a/test/checkout.test.ts b/test/checkout.test.ts
+index 9a3dfd5..cac2159 100644
+--- a/test/checkout.test.ts
++++ b/test/checkout.test.ts
+@@ -12,6 +12,10 @@ describe("subtotal", () => {
+     expect(subtotal(items)).toBe(1500);
+   });
+ 
++  it("ignores lines with zero or negative qty", () => {
++    expect(subtotal([...items, { sku: "gone", priceCents: 500, qty: 0 }, { sku: "weird", priceCents: 200, qty: -1 }])).toBe(1500);
++  });
++
+   it("is zero for an empty cart", () => {
+     expect(subtotal([])).toBe(0);
+   });
