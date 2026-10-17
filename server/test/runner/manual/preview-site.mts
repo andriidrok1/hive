@@ -12,7 +12,7 @@ process.env.HIVE_PREVIEW_SITE = "1";
 const mode = process.argv[2] ?? "restore";
 const site = makePreviewSite(process.env)!;
 const files = await readProjectFiles(join(repoRoot, "demo-app"));
-if (mode === "edit") files["src/format.ts"] = files["src/format.ts"]!.replace('"$"', '"USD "');
+if (mode === "edit") files["src/format.ts"] = files["src/format.ts"]!.replace("`$${", "`USD ${");
 const t0 = Date.now();
 const url = await site.getUrl();
 console.log(`url ${url} (${Date.now() - t0}ms)`, JSON.stringify(site.timings));
