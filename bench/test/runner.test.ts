@@ -104,7 +104,7 @@ describe("runScenario", () => {
     const origStart = client.startAgent.bind(client);
     client.startAgent = async (agentId, humanId, task, owns) => {
       const r = await origStart(agentId, humanId, task, owns);
-      server.emit({ type: "llm_call", purpose: `agent:${agentId}`, model: "m", ms: 5, tokensIn: 100, tokensOut: 10 });
+      server.emit({ type: "llm_call", purpose: `agent:${agentId}`, model: "m", ms: 5, tokensIn: 100, tokensOut: 10, tokensCached: 50 } as FeedEventBody);
       server.emit({ type: "agent_status", agentId, humanId, status: "tool", step: 1 });
       server.emit({ type: "agent_status", agentId, humanId, status: "tool", step: 2 });
       if (agentId === "agent-masha") {
@@ -144,8 +144,9 @@ describe("runScenario", () => {
       acceptanceFailed: 0,
       toolCalls: 4,
       llmCalls: 2,
-      tokensIn: 200,
+      tokensIn: 300, // 2 x (100 uncached + 50 cached)
       tokensOut: 20,
+      tokensCached: 100,
       briefingsSent: 1,
       acksAdapted: 1,
       conflictsCaught: 1,

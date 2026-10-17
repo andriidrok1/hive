@@ -19,6 +19,7 @@ function row(over: Partial<ResultRow>): ResultRow {
     llmCalls: 12,
     tokensIn: 1000,
     tokensOut: 200,
+    tokensCached: 600,
     wallMs: 60_000,
     briefingsSent: 2,
     acksAdapted: 1,
@@ -82,8 +83,8 @@ describe("summarize", () => {
   it("writes CSV with a header, booleans, blanks for null and quoted errors", () => {
     const csv = toCsv([row({ error: 'boom, "quoted"', culpritCorrect: null, mergeOk: false })]);
     const [header, line] = csv.trim().split("\n");
-    expect(header!.startsWith("scenario,variant,repeat,conflict,success,passed,failed,acceptancePassed,acceptanceFailed,acceptanceOk,toolCalls")).toBe(true);
-    expect(line).toBe('s01-double-tax,hive,1,true,true,27,0,3,0,true,10,12,1000,200,60000,2,1,1,0,,false,true,"boom, ""quoted"""');
+    expect(header!.startsWith("scenario,variant,repeat,conflict,success,passed,failed,acceptancePassed,acceptanceFailed,acceptanceOk,toolCalls,llmCalls,tokensIn,tokensOut,tokensCached,wallMs")).toBe(true);
+    expect(line).toBe('s01-double-tax,hive,1,true,true,27,0,3,0,true,10,12,1000,200,600,60000,2,1,1,0,,false,true,"boom, ""quoted"""');
   });
 });
 

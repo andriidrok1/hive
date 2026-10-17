@@ -29,6 +29,8 @@ const script: FeedEventBody[] = [
   { type: "agent_status", agentId: "agent-andrii", humanId: "andrii", status: "tool", step: 2 },
   { type: "intent_declared", intent: intent("A1", "agent-andrii", "approved"), conflicts: [], dependents: [] },
   { type: "llm_call", purpose: "check:contradiction", model: "nano", ms: 400, tokensIn: 800, tokensOut: 20 },
+  // the agent loop reports uncached input and cached input separately
+  { type: "llm_call", purpose: "agent:agent-masha", model: "m", ms: 700, tokensIn: 1500, tokensOut: 60, tokensCached: 4000 } as FeedEventBody,
   { type: "agent_status", agentId: "agent-masha", humanId: "masha", status: "tool", step: 1 },
   {
     type: "intent_declared",
@@ -65,10 +67,17 @@ describe("FeedCounters on a scripted hive run", () => {
 
   it("counts tool calls and tokens from agent_status and llm_call", () => {
     expect(c.toolCalls).toBe(3);
-    expect(c.llmCalls).toBe(2);
-    expect(c.agentLlmCalls).toBe(1);
-    expect(c.tokensIn).toBe(5800);
-    expect(c.tokensOut).toBe(140);
+    expect(c.llmCalls).toBe(3);
+    expect(c.agentLlmCalls).toBe(2);
+    expect(c.tokensIn).toBe(5000 + 800 + 1500 + 4000); // cached tokens count toward the total prompt size
+    expect(c.tokensCached).toBe(4000);
+    expect(c.tokensOut).toBe(200);
+  });
+
+  it("treats an llm_call without tokensCached as fully uncached", () => {
+    const c0 = replay([{ type: "llm_call", purpose: "agent:a", model: "m", ms: 1, tokensIn: 300, tokensOut: 10 }]);
+    expect(c0.tokensIn).toBe(300);
+    expect(c0.tokensCached).toBe(0);
   });
 
   it("counts the conflict caught before code from intent_declared", () => {
@@ -98,7 +107,7 @@ describe("FeedCounters on a scripted hive run", () => {
   });
 
   it("reports null culprit correctness when no report arrived", () => {
-    const before = replay(script.slice(0, 21));
+    const before = replay(script.slice(0, 22));
     expect(before.culpritSearches).toBe(1);
     expect(before.culpritCorrect(["agent-andrii", "agent-masha"])).toBeNull();
   });

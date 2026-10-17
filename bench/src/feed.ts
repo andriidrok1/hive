@@ -6,8 +6,9 @@ export class FeedCounters {
   toolCalls = 0; // agent_status events with status "tool" (one per tool execution)
   llmCalls = 0;
   agentLlmCalls = 0;
-  tokensIn = 0;
+  tokensIn = 0; // total prompt tokens: uncached + cached, comparable across agent-loop versions
   tokensOut = 0;
+  tokensCached = 0; // cached prompt tokens (llm_call.tokensCached, 0 when the event has none)
   briefingsSent = 0;
   acksAdapted = 0;
   conflictsCaught = 0; // intent_declared with at least one conflict: caught before any code
@@ -26,8 +27,13 @@ export class FeedCounters {
       case "llm_call":
         this.llmCalls++;
         if (e.purpose.startsWith("agent:")) this.agentLlmCalls++;
-        this.tokensIn += e.tokensIn;
-        this.tokensOut += e.tokensOut;
+        {
+          // The agent loop reports tokensIn as UNCACHED input and adds tokensCached (not yet in the contract type).
+          const cached = (e as { tokensCached?: number }).tokensCached ?? 0;
+          this.tokensIn += e.tokensIn + cached;
+          this.tokensCached += cached;
+          this.tokensOut += e.tokensOut;
+        }
         break;
       case "briefing_sent":
         this.briefingsSent++;
@@ -86,8 +92,9 @@ export interface ResultRow {
   acceptanceOk: boolean;
   toolCalls: number;
   llmCalls: number;
-  tokensIn: number;
+  tokensIn: number; // total prompt tokens (uncached + cached)
   tokensOut: number;
+  tokensCached: number;
   wallMs: number; // from the first agent start to the last agent's terminal status
   briefingsSent: number;
   acksAdapted: number;
@@ -114,6 +121,7 @@ export const CSV_COLUMNS: (keyof ResultRow)[] = [
   "llmCalls",
   "tokensIn",
   "tokensOut",
+  "tokensCached",
   "wallMs",
   "briefingsSent",
   "acksAdapted",

@@ -51,6 +51,7 @@ export async function runScenario(
     llmCalls: 0,
     tokensIn: 0,
     tokensOut: 0,
+    tokensCached: 0,
     wallMs: 0,
     briefingsSent: 0,
     acksAdapted: 0,
@@ -124,6 +125,7 @@ export async function runScenario(
       row.llmCalls = c.llmCalls;
       row.tokensIn = c.tokensIn;
       row.tokensOut = c.tokensOut;
+      row.tokensCached = c.tokensCached;
       row.briefingsSent = c.briefingsSent;
       row.acksAdapted = c.acksAdapted;
       row.conflictsCaught = c.conflictsCaught;
