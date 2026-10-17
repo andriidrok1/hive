@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type OpenAI from "openai";
+import type { ToolErrorCode } from "@hive/shared";
 import { DEFAULTS, runAgent, type AgentEvent } from "../src/index.js";
 import { FakeHive, FakeOpenAI, briefing, completion, toolCallMessage } from "./fakes.js";
 
@@ -632,6 +633,40 @@ describe("runAgent: wait for conflict approval instead of giving up", () => {
     setTimeout(() => stop.abort(), 15);
     const res = await runAgent({ ...base, client: hive, openai: ai.asOpenAI(), signal: stop.signal, conflictPollMs: 1000, conflictWaitMs: 5000 });
     expect(res.status).toBe("stopped");
+  });
+});
+
+describe("runAgent: NOT_OWNER twice on the same path", () => {
+  const notOwner = (path: string) => ({ ok: false, error: { code: "NOT_OWNER" as unknown as ToolErrorCode, message: `${path} is owned by agent-masha` } });
+  const edit = (path: string) => ({ tool: "edit_region", args: { intentId: "A1", path, oldText: "a", newText: "b" } }) as const;
+
+  it("second NOT_OWNER on the same path -> one user line after that tool result", async () => {
+    const hive = new FakeHive((tool, args) => (tool === "edit_region" || tool === "declare_intent" ? notOwner(String((args as { path?: string }).path ?? "src/tax.ts")) : undefined));
+    const ai = new FakeOpenAI([edit("src/tax.ts"), edit("src/other.ts"), edit("src/tax.ts"), edit("src/tax.ts"), { text: "ok, asking masha" }]);
+    const res = await runAgent({ ...base, client: hive, openai: ai.asOpenAI() });
+    expect(res.status).toBe("done");
+    const line = { role: "user", content: "Hive: stop editing src/tax.ts; it is not yours." };
+    expect(ai.requests[1]!.body.messages.at(-1)!.role).toBe("tool"); // first NOT_OWNER: nothing yet
+    expect(ai.requests[2]!.body.messages.at(-1)!.role).toBe("tool"); // other path: separate counter
+    expect(ai.requests[3]!.body.messages.at(-1)).toEqual(line); // second on src/tax.ts
+    expect(ai.requests[3]!.body.messages.at(-2)!.role).toBe("tool");
+    expect(ai.requests[4]!.body.messages.filter((m) => m.role === "user" && m.content === line.content)).toHaveLength(1); // third: no repeat
+  });
+
+  it("declare_intent NOT_OWNER and edit_region NOT_OWNER on the same file count together", async () => {
+    const hive = new FakeHive((tool, args) => {
+      if (tool === "declare_intent") return notOwner((args as { target: { file: string } }).target.file);
+      if (tool === "edit_region") return notOwner((args as { path: string }).path);
+      return undefined;
+    });
+    const ai = new FakeOpenAI([
+      { tool: "declare_intent", args: { target: { file: "src/tax.ts", symbol: "totalWithTax" }, action: "modify", what: "fix tax", input: "items", output: "cents" } },
+      edit("src/tax.ts"),
+      { text: "stopping" },
+    ]);
+    const res = await runAgent({ ...base, client: hive, openai: ai.asOpenAI() });
+    expect(res.status).toBe("done");
+    expect(ai.requests[2]!.body.messages.at(-1)).toEqual({ role: "user", content: "Hive: stop editing src/tax.ts; it is not yours." });
   });
 });
 

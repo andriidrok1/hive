@@ -147,6 +147,7 @@ export async function runAgent(opts: RunOptions): Promise<RunResult> {
   const seenBriefings = new Map<string, Briefing>();
   const myIntents = new Set<IntentId>();
   let nudges = 0;
+  const notOwner = new Map<string, number>(); // NOT_OWNER count per path; the 2nd one earns a "stop editing" line
   let edits = 0; // successful edit_region/create_file calls
   let editsAtLastNudge = 0;
   let idleNudges = 0; // consecutive nudges after which no edit followed
@@ -167,7 +168,18 @@ export async function runAgent(opts: RunOptions): Promise<RunResult> {
         lastTests = { ok: false, passed: 0, failed: failures.length, failures, durationMs: 0 };
       }
     }
-    if (!r.ok) return;
+    if (!r.ok) {
+      if (String(r.error?.code) === "NOT_OWNER") {
+        const a = args as { path?: unknown; target?: { file?: unknown } };
+        const path = typeof a.path === "string" ? a.path : typeof a.target?.file === "string" ? a.target.file : "";
+        if (path) {
+          const n = (notOwner.get(path) ?? 0) + 1;
+          notOwner.set(path, n);
+          if (n === 2) pendingNotes.push(`Hive: stop editing ${path}; it is not yours.`);
+        }
+      }
+      return;
+    }
     if (tool === "run_tests" && r.data && typeof r.data === "object" && "ok" in r.data) lastTests = r.data as TestResult;
     if (tool === "ack_briefing") unacked.delete(String((args as { briefingId?: unknown }).briefingId));
     if (tool === "edit_region" || tool === "create_file") edits += 1;

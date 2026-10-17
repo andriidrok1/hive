@@ -49,6 +49,14 @@ describe("TOOL_SCHEMAS", () => {
     expect(d).toContain("no imports");
   });
 
+  it("edit_region and declare_intent mention NOT_OWNER", () => {
+    for (const name of ["edit_region", "declare_intent"]) {
+      const t = TOOL_SCHEMAS.find((x) => x.type === "function" && x.function.name === name);
+      const d = t && t.type === "function" ? t.function.description ?? "" : "";
+      expect(d).toContain("NOT_OWNER means the file belongs to another agent: do not retry, ask_agent the named owner.");
+    }
+  });
+
   it("run_tests filter is described as a test-name regex, not a file path", () => {
     const t = TOOL_SCHEMAS.find((x) => x.type === "function" && x.function.name === "run_tests") as unknown as { function: { description: string; parameters: { properties: { filter: { description: string } } } } };
     const d = t.function.parameters.properties.filter.description;
@@ -90,6 +98,7 @@ describe("systemPrompt", () => {
     expect(p).toContain("call finish_intent on that intent right away so they are unblocked");
     expect(p).toContain("Edit only the files named in your task and their test file.");
     expect(p).toContain("read_file shows who is already working in a file and what they promised.");
+    expect(p).toContain("NOT_OWNER means the file belongs to someone else: do not retry; ask_agent the named owner for what you need and continue with your own files.");
     expect(p).toContain("build on their promised output, do not duplicate or undo their work, and declare only what is left");
     expect(p).toContain("do not fix other agents' files yourself");
     expect(p.split(/\s+/).filter(Boolean).length).toBeLessThan(350);
