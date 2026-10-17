@@ -100,8 +100,8 @@ export const TOOL_SCHEMAS: OpenAI.Chat.ChatCompletionTool[] = [
   ),
   tool(
     "run_tests",
-    "Run the project's vitest suite on a snapshot of the current files.",
-    { filter: str("Optional vitest filter (file or test name)") },
+    "Run the project's vitest suite on a snapshot of the current files. Omit filter to run everything; a filter that matches no tests is reported as a failure.",
+    { filter: str("Optional vitest test-name regex (vitest -t), NOT a file path. Omit it to run everything; a filter that matches no tests is reported as a failure.") },
     TOOL_REQUIRED.run_tests,
   ),
   tool(

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type OpenAI from "openai";
-import { runAgent, type AgentEvent } from "../src/index.js";
+import { DEFAULTS, runAgent, type AgentEvent } from "../src/index.js";
 import { FakeHive, FakeOpenAI, briefing, completion, toolCallMessage } from "./fakes.js";
 
 const base = { agentId: "agent-a", humanId: "a", task: "add shipping to calculateTotal" };
@@ -413,16 +413,37 @@ describe("runAgent: red-tests nudges (up to 3) and unacked nudge", () => {
     expect(ai.requests[2]!.body.messages.at(-2)).toMatchObject({ role: "assistant", content: "Done, all good." });
   });
 
-  it("repeats up to 3 times while red, then accepts the 4th final message", async () => {
+  it("repeats up to 3 times while red when the agent keeps editing, then accepts the 4th final message", async () => {
     const hive = new FakeHive((tool) => (tool === "run_tests" ? { data: red } : undefined));
-    const ai = new FakeOpenAI([{ tool: "run_tests", args: {} }, { text: "give up 1" }, { text: "give up 2" }, { text: "give up 3" }, { text: "give up 4" }]);
+    const edit = { tool: "edit_region", args: { intentId: "A1", path: "a.ts", oldText: "x", newText: "y" } } as const;
+    const ai = new FakeOpenAI([{ tool: "run_tests", args: {} }, { text: "give up 1" }, edit, { text: "give up 2" }, edit, { text: "give up 3" }, edit, { text: "give up 4" }]);
     const res = await runAgent({ ...base, client: hive, openai: ai.asOpenAI() });
     expect(res.status).toBe("done");
     expect(res.finalMessage).toBe("give up 4");
-    expect(ai.requests).toHaveLength(5);
-    const nudgesSent = ai.requests[4]!.body.messages.filter((m) => m.role === "user" && typeof m.content === "string" && m.content.startsWith("Hive: tests are still red"));
+    expect(ai.requests).toHaveLength(8);
+    const nudgesSent = ai.requests[7]!.body.messages.filter((m) => m.role === "user" && typeof m.content === "string" && m.content.startsWith("Hive: tests are still red"));
     expect(nudgesSent).toHaveLength(3);
     for (const n of nudgesSent) expect(n.content).toBe(redText);
+  });
+
+  it("stops early after two consecutive nudges without any edit (spinning)", async () => {
+    const hive = new FakeHive((tool) => (tool === "run_tests" ? { data: red } : undefined));
+    const ai = new FakeOpenAI([{ tool: "run_tests", args: {} }, { text: "give up 1" }, { text: "give up 2" }, { text: "give up 3" }]);
+    const res = await runAgent({ ...base, client: hive, openai: ai.asOpenAI() });
+    expect(res.status).toBe("done");
+    expect(res.finalMessage).toBe("give up 3");
+    expect(ai.requests).toHaveLength(4); // two nudges went out with no edit in between, the third final is accepted
+
+    // one idle nudge, then an edit, then idle again: the streak resets, so 3 nudges go out
+    const edit = { tool: "edit_region", args: { intentId: "A1", path: "a.ts", oldText: "x", newText: "y" } } as const;
+    const ai2 = new FakeOpenAI([{ tool: "run_tests", args: {} }, { text: "1" }, { text: "2" }, edit, { text: "3" }, { text: "4" }]);
+    const res2 = await runAgent({ ...base, client: new FakeHive((tool) => (tool === "run_tests" ? { data: red } : undefined)), openai: ai2.asOpenAI() });
+    expect(res2.finalMessage).toBe("4");
+    expect(ai2.requests).toHaveLength(6);
+  });
+
+  it("default token budget is 300k", () => {
+    expect(DEFAULTS.maxTokens).toBe(300_000);
   });
 
   it("low budget (fewer than 8 tool calls or 60 s left) -> no red nudge, final accepted", async () => {
@@ -441,11 +462,11 @@ describe("runAgent: red-tests nudges (up to 3) and unacked nudge", () => {
   it("failing tests carried by a culprit briefing count as red", async () => {
     const hive = new FakeHive();
     hive.queued = [briefing({ id: "br_c", kind: "culprit", fromAgent: undefined, requiresAck: false, summary: "Tests failed after your change set A1.", details: { intentId: "A1", failingTests: [{ name: "checkout > total", message: "expected 1609 got 1500" }] } })];
-    const ai = new FakeOpenAI([{ tool: "list_files", args: {} }, { text: "done" }, { text: "done again" }, { text: "done 3" }, { text: "done 4" }]);
+    const ai = new FakeOpenAI([{ tool: "list_files", args: {} }, { text: "done" }, { text: "done again" }, { text: "done 3" }]);
     const res = await runAgent({ ...base, client: hive, openai: ai.asOpenAI() });
     expect(res.status).toBe("done");
     expect(ai.requests[2]!.body.messages.at(-1)!.content).toBe("Hive: tests are still red (1 failed: checkout > total). You may still edit; if the failing tests belong to another agent's area, ask them and wait, otherwise fix now.");
-    expect(ai.requests).toHaveLength(5);
+    expect(ai.requests).toHaveLength(4); // two idle nudges, then accepted
   });
 
   it("final message with an unacked required briefing -> one nudge naming it; acked briefings do not count", async () => {
@@ -579,7 +600,7 @@ describe("runAgent: wait for conflict approval instead of giving up", () => {
     expect(hive.toolNames()).toEqual(["declare_intent", "declare_intent"]);
   });
 
-  it("conflict wait happens once and first, then red-tests nudges up to 3 times", async () => {
+  it("conflict wait happens once and first, then red-tests nudges", async () => {
     let polls = 0;
     const hive = new FakeHive((tool) => {
       if (tool === "declare_intent") return { data: conflictData };
@@ -594,14 +615,13 @@ describe("runAgent: wait for conflict approval instead of giving up", () => {
       { text: "giving up 2" },
       { text: "giving up 3" },
       { text: "giving up 4" },
-      { text: "giving up 5" },
     ]);
     const res = await runAgent({ ...base, client: hive, openai: ai.asOpenAI(), conflictPollMs: 5, conflictWaitMs: 1000 });
     expect(res.status).toBe("done");
-    expect(res.finalMessage).toBe("giving up 5");
-    expect(ai.requests).toHaveLength(7);
+    expect(res.finalMessage).toBe("giving up 4");
+    expect(ai.requests).toHaveLength(6); // wait, then two idle nudges, then accepted
     expect(ai.requests[3]!.body.messages.at(-1)!.content).toContain("is now approved");
-    for (const i of [4, 5, 6]) expect(ai.requests[i]!.body.messages.at(-1)!.content).toMatch(/^Hive: tests are still red/);
+    for (const i of [4, 5]) expect(ai.requests[i]!.body.messages.at(-1)!.content).toMatch(/^Hive: tests are still red/);
     expect(hive.toolNames().filter((t) => t === "list_files")).toHaveLength(1);
   });
 

@@ -49,6 +49,16 @@ describe("TOOL_SCHEMAS", () => {
     expect(d).toContain("no imports");
   });
 
+  it("run_tests filter is described as a test-name regex, not a file path", () => {
+    const t = TOOL_SCHEMAS.find((x) => x.type === "function" && x.function.name === "run_tests") as unknown as { function: { description: string; parameters: { properties: { filter: { description: string } } } } };
+    const d = t.function.parameters.properties.filter.description;
+    expect(d).toContain("test-name regex");
+    expect(d).toContain("-t");
+    expect(d).toContain("NOT a file path");
+    expect(d).toContain("matches no tests is reported as a failure");
+    expect(t.function.description).toContain("Omit filter to run everything");
+  });
+
   it("finish_intent description says a no-edit finish releases the target", () => {
     const t = TOOL_SCHEMAS.find((x) => x.type === "function" && x.function.name === "finish_intent");
     const d = t && t.type === "function" ? t.function.description ?? "" : "";
@@ -78,6 +88,8 @@ describe("systemPrompt", () => {
     expect(p).toContain("Do not re-declare the same target repeatedly");
     expect(p).toContain("wait for Hive's approval briefing");
     expect(p).toContain("call finish_intent on that intent right away so they are unblocked");
+    expect(p).toContain("Edit only the files named in your task and their test file.");
+    expect(p).toContain("do not fix other agents' files yourself");
     expect(p.split(/\s+/).filter(Boolean).length).toBeLessThan(350);
   });
 
