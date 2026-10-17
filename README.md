@@ -1,16 +1,49 @@
+<div align="center">
+
 # Hive
 
-**One live project for people and their coding agents.** Every human brings their own agent; all of them edit the same files at the same time, Google-Docs style, and Hive keeps them from breaking each other's work.
+**One live project for people and their coding agents.**<br/>
+Every human brings their own agent. All of them edit the same files at the same time, Google-Docs style, and Hive keeps them from breaking each other's work: intent declared before code, contradictions caught before they exist, culprits found in parallel VMs when tests go red.
+
+[![Built at c0mpiled-14](https://img.shields.io/badge/Built%20at-c0mpiled--14%20%C2%B7%20UC%20Berkeley-F59E0B?style=for-the-badge)](https://luma.com/compiled-289f)
+[![YC RFS 4](https://img.shields.io/badge/YC%20RFS%204-Multiplayer%20AI-FF6600?style=for-the-badge)](https://www.ycombinator.com/rfs)
+[![Runs on Freestyle](https://img.shields.io/badge/Runs%20on-Freestyle%20VMs-7C5CFF?style=for-the-badge)](https://freestyle.sh)
+
+[![Tests](https://img.shields.io/badge/tests-378%20passing-2EA44F?style=flat-square)](#how-to-run)
+[![Bench](https://img.shields.io/badge/bench-hive%204%2F6%20%C2%B7%20naive%204%2F6%20%C2%B7%20isolated%202%2F6-6366F1?style=flat-square)](#measured)
+[![Culprit search](https://img.shields.io/badge/culprit%20search-6%20variants%20in%203.8%20s-6366F1?style=flat-square)](#measured)
+[![Live receipt](https://img.shields.io/badge/live%20demo-hive--receipt--1045.style.dev-22C55E?style=flat-square)](https://hive-receipt-1045.style.dev)
+<br/>
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.9%20strict-3178C6?style=flat-square&logo=typescript&logoColor=white)](tsconfig.base.json)
+[![Node.js](https://img.shields.io/badge/Node.js-24-5FA04E?style=flat-square&logo=nodedotjs&logoColor=white)](package.json)
+[![React](https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react&logoColor=black)](web)
+[![Fastify](https://img.shields.io/badge/Fastify-5-000000?style=flat-square&logo=fastify&logoColor=white)](server)
+[![Yjs](https://img.shields.io/badge/Yjs-13%20%C2%B7%20live%20doc-FACC15?style=flat-square)](server/src/core)
+[![OpenAI](https://img.shields.io/badge/OpenAI-gpt--5.4--mini-412991?style=flat-square&logo=openai&logoColor=white)](agent)
+
+[What it does](#what-it-does) · [How it works](#how-it-works) · [See it](#see-it) · [Why](#why) · [Architecture](#architecture) · [How to run](#how-to-run) · [Measured](#measured) · [Limitations](#limitations)
+
+</div>
 
 <p align="center"><img src="docs/img/hive-editor.png" alt="Hive: two agents editing the same file, each with a declared intent over the function it is changing" width="920"></p>
-
-Built in one day at [c0mpiled-14](https://luma.com/compiled-289f) (UC Berkeley, 17 Oct 2026) for YC RFS 4 *Multiplayer AI*, track 01 *Agent-first software*. Stack: TypeScript, Yjs, Fastify, React, OpenAI `gpt-5.4-mini`, [Freestyle](https://freestyle.sh) VMs.
 
 ## What it does
 
 Before an agent touches a function it **declares an intent**: which symbol, what it will do, what the output will be. Hive checks that promise against every other standing promise *before any code exists*, flags `same_target` and semantic contradictions, and lets agents talk it out (three exchanges max, then it goes to the humans). Every `read_file` is logged with the symbols in range, so when something an agent relied on changes it gets a **briefing** it must acknowledge (adapted / not relevant / ask). Each finished intent is **judged on its own view**: last green snapshot plus finished change sets, nobody's half-written edits. When the suite goes red, Hive spins up **variants in parallel VMs** (with and without each change set) and names the culprit change set, or the pair that only fails together, in under a second locally and under four seconds on Freestyle.
 
 Humans are participants too: open any file and see whose agent is in it and what it promised; drop a note; pause, interrupt or redirect any agent; edit a contract from your phone (`/m`).
+
+## How it works
+
+| | Step | Where |
+|---|---|---|
+| **1** | **Read.** An agent calls `read_file`; Hive logs which symbols it saw at which revision and returns who else is working in that file and what they promised. | `core/ReadLog`, `api/tools.ts` |
+| **2** | **Declare.** Before editing a symbol the agent calls `declare_intent`: target, what changes, the promised output, a one-line check. Hive compares the promise with every standing promise (`same_target`, then an LLM contradiction check with explicit call relations) and answers `approved`, `conflict` or `wait`. | `coord/IntentRegistry` |
+| **3** | **Edit live.** Edits land in one Yjs document; everyone sees them as they happen, with the agent's cursor and the intent label over the function. Ownership zones (`owns`) are enforced server-side (`NOT_OWNER`). | `core/ProjectStore`, `web/` |
+| **4** | **Brief.** When a symbol changes, every agent that read it or calls it gets a briefing it must acknowledge (`adapted` / `not_relevant` / `ask`) before its next edit. Agents can message each other, three exchanges, then it goes to the humans. | `coord/ChangeWatcher`, `BriefingQueue`, `Mailbox` |
+| **5** | **Judge on a clean view.** A finished intent is tested on the last green snapshot plus finished change sets, with other agents' half-written edits excluded. Its own check runs too; check red + suite green is still `verified`, with a note. | `runner/TestOrchestrator` |
+| **6** | **Find the culprit.** If the suite goes red, Hive runs variants with and without each agent's change set in parallel (Freestyle VMs from a base snapshot, or local temp dirs) and names the single culprit, the pair that only fails together, or `dependent` when edits interleave. | `runner/CulpritFinder` |
+| **7** | **Humans in the loop.** Any file shows who is in it; notes, pause, interrupt and contract edits work from the browser or the phone page `/m`. The public receipt page shows the project's live output while the agents work. | `web/`, `runner/PreviewSite` |
 
 ## See it
 
@@ -36,27 +69,7 @@ The baselines are built in: `HIVE_MODE=naive` is the same shared project without
 
 ## Architecture
 
-```
-  browser (web/)                        phone (/m)
-  React + CodeMirror + y-codemirror       contracts + notes
-        |  /yjs/project (Yjs sync)   |  /ws/feed (FeedEvent JSON)   |  /api/*
-        v                            v                              v
-  +---------------------------------------------------------------------------+
-  |  @hive/server  (one process, all state in memory)                         |
-  |                                                                           |
-  |  api/     tools.ts (11 agent tools)  humans.ts  ws.ts  yjsWs.ts  hive.ts  |
-  |  agents/  AgentManager: runs agent loops in-process, pause/stop/notes     |
-  |  core/    ProjectStore (Y.Map<Y.Text>, rev counter)  ReadLog  History     |
-  |  coord/   analyze (TS compiler API)  CallGraph  IntentRegistry            |
-  |           ChangeWatcher  BriefingQueue  Mailbox  OpenAILLM                |
-  |  runner/  LocalRunner | FreestyleRunner  TestOrchestrator  CulpritFinder  |
-  +---------------------------------------------------------------------------+
-        ^                                            |
-        |  tool calls (in-process HiveClient)        |  runTests(files) / variants
-        |                                            v
-  @hive/agent: OpenAI Chat Completions loop     Freestyle VMs from a base snapshot
-  (gpt-5.4-mini, tools, two cancel channels)    (demo-app + node_modules), up to 8 in parallel
-```
+<p align="center"><img src="docs/img/architecture.png" alt="Hive architecture: browser, phone and agents talk to one server process (core, coord, runner, api, agents); the server drives Freestyle VMs for culprit search and a public receipt site" width="1000"></p>
 
 `shared/src/contracts.ts` is the single source of truth for every type that crosses a package boundary; `CONTRACTS.md` explains it in prose. The server modules talk through TypeScript interfaces and are tested without HTTP.
 
@@ -124,7 +137,7 @@ npm run bench -w @hive/bench -- --scenarios s01,s02 --variants hive,naive,isolat
 
 Results land in `results/results.csv` and `results/summary.md`. With `--parallel N` the bench expects N servers on consecutive ports.
 
-Tests: `npm test` at the root runs every package (about 1,430 across server, agent, web, bench and demo-app), `npm run typecheck` checks them all.
+Tests: `npm test` at the root runs every package (378: server 162, agent 54, web 42, bench 100, demo-app 20), `npm run typecheck` checks them all.
 
 ## Measured
 
