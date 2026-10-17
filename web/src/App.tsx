@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { FileText, FlaskConical, GitBranch, Plus, Rss, Users } from "lucide-react";
+import { FileText, FlaskConical, GitBranch, Plus, Rss } from "lucide-react";
 import { TERMINAL_AGENT_STATUSES } from "@hive/shared";
 import { connectLive, createStore, resyncAfterReset, startMock, useHive } from "./store";
 import { hub } from "./editor/yjs";
@@ -7,7 +7,6 @@ import { currentIntentOf, filesOfAgent, pendingBriefings, unresolvedConflicts } 
 import { isMock, lanUrl, loadHumanId, saveHumanId } from "./env";
 import { setMockSink } from "./api";
 import { MOCK_LAN_URL } from "./mock";
-import { spawnDemoAgents } from "./demoPresets";
 import { Rail } from "./components/Rail";
 import { ProjectPanel } from "./components/ProjectPanel";
 import { ProjectActivity } from "./components/ProjectActivity";
@@ -18,7 +17,8 @@ import { HistoryTab } from "./components/HistoryTab";
 import { CulpritTab } from "./components/CulpritTab";
 import { ContractsTab } from "./components/ContractsTab";
 import { StartAgentDialog } from "./components/StartAgentDialog";
-import { EditorPane, defaultPath } from "./editor/EditorPane";
+import { SpawnDemoButton } from "./components/SpawnDemoButton";
+import { EditorPane, defaultPath, type CenterView } from "./editor/EditorPane";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./components/ui/tabs";
 import { TooltipProvider } from "./components/ui/tooltip";
 import { Badge } from "./components/ui/badge";
@@ -41,6 +41,20 @@ export function App({ mockStepMs }: { mockStepMs?: number } = {}) {
   const [showLlm, setShowLlm] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
   const path = defaultPath(state.files, selected);
+  // Center column: editor or store preview; P toggles unless the user is typing somewhere.
+  const [view, setView] = useState<CenterView>("code");
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "p" && e.key !== "P") return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable || t.closest?.(".cm-editor"))) return;
+      e.preventDefault();
+      setView((v) => (v === "code" ? "preview" : "code"));
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
   // Agent the bottom chat box talks to: the one clicked in the list, else your own, else the first working one.
   const [chatAgent, setChatAgent] = useState<string | null>(null);
   const chatTarget =
@@ -82,6 +96,8 @@ export function App({ mockStepMs }: { mockStepMs?: number } = {}) {
     saveHumanId(id);
   };
 
+  // Your own agent is running: the demo button must not reset the project under it.
+  const agentsRunning = state.agents.some((a) => a.agentId === myAgentId(humanId) && !TERMINAL_AGENT_STATUSES.includes(a.status));
   const conflicts = unresolvedConflicts(state).length;
   const pending = pendingBriefings(state).length;
   const searching = Boolean(state.culprit && !state.culprit.report);
@@ -98,7 +114,7 @@ export function App({ mockStepMs }: { mockStepMs?: number } = {}) {
         <Rail humanId={humanId} onHumanId={onHumanId} qrUrl={mock ? MOCK_LAN_URL : lanUrl("/m")} />
         <div className="grid min-h-0 min-w-0 grid-cols-[240px_minmax(0,1fr)_400px]">
           <ProjectPanel files={state.files} intents={state.intents} selected={path} onSelect={setSelected} mode={state.mode} />
-          <EditorPane state={state} mock={mock} humanId={humanId} path={path} onSelect={setSelected} lastEdit={lastEdit} />
+          <EditorPane state={state} mock={mock} humanId={humanId} path={path} onSelect={setSelected} lastEdit={lastEdit} view={view} onView={setView} />
           <section className="grid min-h-0 min-w-0 grid-cols-[minmax(0,1fr)] grid-rows-[minmax(0,1fr)] overflow-hidden border-l border-border bg-panel">
             <Tabs value={main} onValueChange={(v) => setMain(v === "activity" ? "activity" : "agents")} className="min-h-0 min-w-0">
               <TabsList className="h-11 px-3">
@@ -115,10 +131,8 @@ export function App({ mockStepMs }: { mockStepMs?: number } = {}) {
                   {pending > 0 && <Badge variant="warning">{pending} unacked</Badge>}
                 </TabsTrigger>
                 {/* Labelled primary action first; "New agent" is the compact "+" (also reachable from the empty state and the chat box). */}
-                <Button size="sm" className="ml-auto shrink-0" title="Starts agent-alex now and agent-nika 3 s later" onClick={() => void spawnDemoAgents()}>
-                  <Users />
-                  Spawn demo agents
-                </Button>
+                <span className="ml-auto" />
+                <SpawnDemoButton size="sm" className="shrink-0" agentsRunning={agentsRunning} />
                 <Button variant="outline" size="icon" className="ml-1.5 size-7 shrink-0" title="New agent" aria-label="New agent" onClick={() => setDialog(true)}>
                   <Plus />
                 </Button>
@@ -130,10 +144,7 @@ export function App({ mockStepMs }: { mockStepMs?: number } = {}) {
                     {state.agents.length === 0 && (
                       <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-border px-4 py-8 text-center" data-testid="empty-agents">
                         <div className="text-[13px] text-muted-foreground">No agents yet.</div>
-                        <Button size="lg" onClick={() => void spawnDemoAgents()}>
-                          <Users />
-                          Spawn demo agents
-                        </Button>
+                        <SpawnDemoButton size="lg" agentsRunning={agentsRunning} />
                         <div className="text-xs text-muted-foreground">Starts Alex (order.ts) and Nika (format.ts)</div>
                         <Button variant="outline" size="sm" onClick={() => setDialog(true)}>
                           <Plus />

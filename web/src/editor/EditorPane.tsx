@@ -1,5 +1,6 @@
 import { Suspense, lazy, useEffect, useState } from "react";
-import { Plus } from "lucide-react";
+import { Code2, Eye, Plus } from "lucide-react";
+import { Preview } from "../preview/Preview";
 import type { SymbolInfo } from "@hive/shared";
 import type { UiState } from "../state";
 import { earlierMap, useLingeringVerified, visibleIntents } from "../intentsView";
@@ -18,7 +19,11 @@ interface Props {
   path: string | null; // controlled by App (shared with the project tree)
   onSelect: (path: string) => void;
   lastEdit?: LastEdit; // latest edit_applied, colours the live-writing flash
+  view?: CenterView; // "code" (editor) or "preview" (store receipt), toggled with P
+  onView?: (v: CenterView) => void;
 }
+
+export type CenterView = "code" | "preview";
 
 // Which file to open when nothing is selected yet: first src/ file, else the first file.
 export function defaultPath(files: { path: string }[], selected: string | null): string | null {
@@ -26,7 +31,7 @@ export function defaultPath(files: { path: string }[], selected: string | null):
   return (files.find((f) => f.path.startsWith("src/")) ?? files[0])?.path ?? null;
 }
 
-export function EditorPane({ state, mock, humanId, path, onSelect, lastEdit }: Props) {
+export function EditorPane({ state, mock, humanId, path, onSelect, lastEdit, view = "code", onView }: Props) {
   const files = state.files;
   const fileRev = files.find((f) => f.path === path)?.rev ?? 0;
   const symbols = useServerSymbols(path, fileRev, mock);
@@ -37,7 +42,26 @@ export function EditorPane({ state, mock, humanId, path, onSelect, lastEdit }: P
   const earlier = earlierMap(visible);
 
   return (
-    <section className="grid min-h-0 grid-rows-[44px_auto_1fr] bg-background">
+    <section className="grid min-h-0 grid-rows-[32px_44px_auto_1fr] bg-background">
+      {/* Code | Preview segmented switch (keyboard: P). */}
+      <div className="flex items-center gap-3 border-b border-border px-3">
+        <div className="inline-flex h-6 overflow-hidden rounded-md border border-border" role="tablist" aria-label="center view">
+          {(["code", "preview"] as const).map((v) => (
+            <button
+              key={v}
+              role="tab"
+              aria-selected={view === v}
+              className={cn("inline-flex items-center gap-1.5 px-2.5 text-[11px] font-medium transition-colors", view === v ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground")}
+              onClick={() => onView?.(v)}
+              data-testid={`view-${v}`}
+            >
+              {v === "code" ? <Code2 className="size-3" /> : <Eye className="size-3" />}
+              {v === "code" ? "Code" : "Preview"}
+            </button>
+          ))}
+        </div>
+        <span className="font-mono text-[10px] text-zinc-600">P to switch</span>
+      </div>
       <nav className="flex items-stretch overflow-x-auto border-b border-border" aria-label="files">
         {files.map((f) => (
           <button
@@ -62,7 +86,9 @@ export function EditorPane({ state, mock, humanId, path, onSelect, lastEdit }: P
       {/* Who is in this file: live from intent_declared / intent_status through state.intents. */}
       <PresenceStrip intents={state.intents} openPath={path} />
       <div className="editor relative min-h-0 overflow-auto bg-background">
-        {path === null ? (
+        {view === "preview" ? (
+          <Preview state={state} mock={mock} active />
+        ) : path === null ? (
           <div className="px-4 py-6 text-xs text-muted-foreground">Waiting for the project.</div>
         ) : mock ? (
           <MockEditor content={mockFileContent(path, state.rev)} intents={intents} earlier={earlier} lastEdit={lastEdit} />
