@@ -20,9 +20,9 @@ export const DEMO_PRESETS: DemoPreset[] = [
   {
     agentId: "agent-nika",
     humanId: "nika",
-    title: "Negative prices and aligned money in format.ts",
+    title: "Negative prices and percent formatting in format.ts",
     task:
-      'In src/format.ts make formatPrice handle negative cents by returning the sign before the dollar ("-$1.50" for -150) and add an exported helper alignMoney(label, cents, width) that returns the label, spaces, and formatPrice(cents) right-aligned to the given total width. Add tests for both in test/format.test.ts. You own src/format.ts and test/format.test.ts.',
+      'In src/format.ts make formatPrice handle negative cents by returning the sign before the dollar ("-$1.50" for -150) and add an exported function formatPercent(value) that returns the number followed by a percent sign, without decimals for whole numbers ("10%" for 10, "7.5%" for 7.5). Add tests for both in test/format.test.ts. You own src/format.ts and test/format.test.ts.',
   },
 ];
 
