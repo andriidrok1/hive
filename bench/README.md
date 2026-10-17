@@ -27,6 +27,6 @@ PORT=4319 npm run dev -w @hive/server &
 npm run bench -w @hive/bench -- --parallel 3 --repeats 2
 ```
 
-Each run: `POST /api/reset {mode}`, open `/ws/feed`, `POST /api/agents` per agent after its delay, poll `/api/state` until both agents are terminal, `POST /api/merge` in isolated mode, `POST /api/test` with the extra tests. Output: `results/results.csv`, `results/results.json`, `results/summary.md` (rewritten after every run, so a partial experiment is still usable).
+Each run: `POST /api/reset {mode}`, open `/ws/feed`, `POST /api/agents` per agent after its delay, poll `/api/state` until both agents are terminal, `POST /api/merge` in isolated mode, `POST /api/test` with the extra tests. Each run ends with two `POST /api/test` calls on the same files: the full suite plus the acceptance file (`success`, `passed`, `failed`) and the acceptance tests alone via `filter` = the acceptance describe name (`acceptanceOk`, `acceptancePassed`, `acceptanceFailed`). Output: `results/results.csv`, `results/results.json`, `results/summary.md` (rewritten after every run, so a partial experiment is still usable).
 
 Counters per row: tool calls (`agent_status` with status `tool`), LLM calls and tokens (`llm_call`), briefings sent, acks with `adapted`, conflicts caught before code (`intent_declared` with conflicts), culprit searches, and whether the last `culprit_found` report names exactly `expectedCulprits` (intent ids mapped to owners). On controls, any conflict caught or culprit search counts as a false alarm in the summary.

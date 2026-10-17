@@ -1,7 +1,7 @@
 import { TERMINAL_AGENT_STATUSES, type HiveMode } from "@hive/shared";
 import { subscribeFeed, type FeedSocketFactory, type HiveClient } from "./client.js";
 import type { ResultRow } from "./feed.js";
-import { readExtraTests, type Scenario } from "./scenarios.js";
+import { acceptanceFilter, readExtraTests, type Scenario } from "./scenarios.js";
 
 export interface RunOptions {
   socketFactory?: FeedSocketFactory; // default: global WebSocket
@@ -10,6 +10,7 @@ export interface RunOptions {
   pollMs?: number; // default 3000
   timeoutMs?: number; // default 5 minutes
   extraTests?: string; // override the file content (tests); default read from bench/scenarios/extra
+  acceptanceFilter?: string; // override the -t pattern for the acceptance-only run
   log?: (line: string) => void;
 }
 
@@ -43,6 +44,9 @@ export async function runScenario(
     success: false,
     passed: 0,
     failed: 0,
+    acceptancePassed: 0,
+    acceptanceFailed: 0,
+    acceptanceOk: false,
     toolCalls: 0,
     llmCalls: 0,
     tokensIn: 0,
@@ -99,10 +103,16 @@ export async function runScenario(
     }
 
     const extra = opts.extraTests ?? readExtraTests(scenario);
-    const result = await client.test({ extraFiles: { [scenario.extraTests]: extra } });
+    const extraFiles = { [scenario.extraTests]: extra };
+    const result = await client.test({ extraFiles });
     row.success = result.ok;
     row.passed = result.passed;
     row.failed = result.failed;
+    // Second view: only the acceptance tests, on the same files.
+    const acceptance = await client.test({ extraFiles, filter: opts.acceptanceFilter ?? acceptanceFilter(scenario) });
+    row.acceptanceOk = acceptance.ok;
+    row.acceptancePassed = acceptance.passed;
+    row.acceptanceFailed = acceptance.failed;
   } catch (err) {
     row.error = row.error ? `${row.error}; ${String(err)}` : String(err);
   } finally {
@@ -124,6 +134,7 @@ export async function runScenario(
   }
   log(
     `${scenario.id}/${variant}#${repeat}: success=${row.success} tests=${row.passed}/${row.passed + row.failed} ` +
+      `acceptance=${row.acceptanceOk} (${row.acceptancePassed}/${row.acceptancePassed + row.acceptanceFailed}) ` +
       `tools=${row.toolCalls} tokens=${row.tokensIn}+${row.tokensOut} wall=${row.wallMs}ms` +
       (row.error ? ` error=${row.error}` : ""),
   );

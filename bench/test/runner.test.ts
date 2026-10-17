@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { FeedEvent, FeedEventBody, HiveState } from "@hive/shared";
 import { HiveClient, type FeedSocket, type FetchLike } from "../src/client.js";
 import { runScenario } from "../src/runner.js";
-import { loadScenarios, selectScenarios } from "../src/scenarios.js";
+import { acceptanceFilter, loadScenarios, selectScenarios } from "../src/scenarios.js";
 import { buildJobs, parseBenchArgs, serverUrls } from "../src/run.js";
 
 type Listener = (ev: { data?: unknown }) => void;
@@ -14,6 +14,7 @@ class FakeServer {
   sockets: { listeners: Record<string, Listener[]>; closed: boolean }[] = [];
   agents = new Map<string, string>();
   mode = "hive";
+  fullSuiteOk = true;
 
   fetch: FetchLike = async (url, init) => {
     const path = new URL(url).pathname;
@@ -56,7 +57,13 @@ class FakeServer {
     if (path === "/api/merge") return json(200, { ok: true, conflicts: [], rev: 4 });
     if (path === "/api/test") {
       const extra = Object.keys(body.extraFiles ?? {});
-      return json(200, { ok: extra.length === 1, passed: 27, failed: 0, failures: [], durationMs: 10 });
+      if (body.filter) {
+        // acceptance-only run: 3 acceptance tests, green only when the filter names the acceptance describe
+        const ok = /acceptance/.test(body.filter) && extra.length === 1;
+        return json(200, { ok, passed: ok ? 3 : 1, failed: ok ? 0 : 2, failures: [], durationMs: 5 });
+      }
+      // full suite: stale pre-existing tests are red in this fake, the acceptance file alone is green
+      return json(200, { ok: this.fullSuiteOk && extra.length === 1, passed: 27, failed: this.fullSuiteOk ? 0 : 2, failures: [], durationMs: 10 });
     }
     return json(404, { error: "not found" });
   };
@@ -132,6 +139,9 @@ describe("runScenario", () => {
       success: true,
       passed: 27,
       failed: 0,
+      acceptanceOk: true,
+      acceptancePassed: 3,
+      acceptanceFailed: 0,
       toolCalls: 4,
       llmCalls: 2,
       tokensIn: 200,
@@ -152,8 +162,13 @@ describe("runScenario", () => {
     expect(server.calls[0]!.body).toEqual({ mode: "hive" });
     expect(paths.filter((p) => p === "POST /api/agents")).toHaveLength(2);
     expect(paths).not.toContain("POST /api/merge");
-    expect(paths.at(-1)).toBe("POST /api/test");
-    expect(server.calls.at(-1)!.body).toEqual({ extraFiles: { "test/s01.accept.test.ts": "// extra" } });
+    // two test runs at the end: the full suite with the acceptance file, then the acceptance tests alone
+    expect(paths.slice(-2)).toEqual(["POST /api/test", "POST /api/test"]);
+    expect(server.calls.at(-2)!.body).toEqual({ extraFiles: { "test/s01.accept.test.ts": "// extra" } });
+    expect(server.calls.at(-1)!.body).toEqual({
+      extraFiles: { "test/s01.accept.test.ts": "// extra" },
+      filter: "s01 acceptance: tax is applied exactly once",
+    });
     // the second agent waited its startDelaysMs before starting
     expect(slept).toContain(3000);
     const startBodies = server.calls.filter((c) => c.path === "/api/agents").map((c) => c.body as { agentId: string; humanId: string; task: string; owns: string[] });
@@ -184,6 +199,21 @@ describe("runScenario", () => {
     // every POST carries a JSON body, Fastify rejects an empty one with FST_ERR_CTP_EMPTY_JSON_BODY
     for (const c of server.calls) if (c.method === "POST") expect(c.rawBody, c.path).toMatch(/^\{/);
     expect(server.calls.find((c) => c.path === "/api/merge")!.body).toEqual({});
+  });
+
+  it("keeps success and acceptance-only success apart", async () => {
+    const server = new FakeServer();
+    server.fullSuiteOk = false; // stale tests red, acceptance file green
+    const client = new HiveClient("http://fake:4317", server.fetch);
+    const row = await runScenario(client, s01, "hive", 1, { socketFactory: server.socketFactory, sleep: async () => {}, extraTests: "x" });
+    expect(row.success).toBe(false);
+    expect(row.failed).toBe(2);
+    expect(row.acceptanceOk).toBe(true);
+    expect(row.acceptancePassed).toBe(3);
+    // a filter that selects nothing relevant is reported as not ok
+    const row2 = await runScenario(client, s01, "hive", 2, { socketFactory: server.socketFactory, sleep: async () => {}, extraTests: "x", acceptanceFilter: "nothing" });
+    expect(row2.acceptanceOk).toBe(false);
+    expect(row2.acceptanceFailed).toBe(2);
   });
 
   it("records a timeout instead of throwing", async () => {
@@ -219,6 +249,17 @@ describe("runScenario", () => {
     const row = await runScenario(client, s01, "hive", 1, { socketFactory: server.socketFactory, sleep: async () => {}, extraTests: "x" });
     expect(row.error).toMatch(/\/api\/reset -> HTTP 500: boom/);
     expect(row.success).toBe(false);
+  });
+});
+
+describe("acceptanceFilter", () => {
+  it("is the first describe name of the acceptance file, regex-escaped, for every scenario", () => {
+    for (const s of scenarios) {
+      const f = acceptanceFilter(s);
+      expect(f, s.id).toMatch(new RegExp(`^${s.id.slice(0, 3)} acceptance`));
+      expect(() => new RegExp(f)).not.toThrow();
+    }
+    expect(acceptanceFilter(selectScenarios(scenarios, "s03")[0]!)).toBe("s03 acceptance: fixed promos are dollars and WELCOME5 is \\$5 off");
   });
 });
 

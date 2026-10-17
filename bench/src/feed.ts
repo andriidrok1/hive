@@ -79,6 +79,11 @@ export interface ResultRow {
   success: boolean; // full suite + extraTests green
   passed: number;
   failed: number;
+  // The acceptance file run alone (same files, vitest -t <acceptance describe>): "did the agents deliver the
+  // intended combined behavior" even when stale pre-existing tests are red.
+  acceptancePassed: number;
+  acceptanceFailed: number;
+  acceptanceOk: boolean;
   toolCalls: number;
   llmCalls: number;
   tokensIn: number;
@@ -102,6 +107,9 @@ export const CSV_COLUMNS: (keyof ResultRow)[] = [
   "success",
   "passed",
   "failed",
+  "acceptancePassed",
+  "acceptanceFailed",
+  "acceptanceOk",
   "toolCalls",
   "llmCalls",
   "tokensIn",
