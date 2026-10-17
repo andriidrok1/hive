@@ -97,13 +97,25 @@ export class TestOrchestrator {
       const checkRun = runId("check");
       onEvent({ type: "test_run_started", runId: checkRun, rev, reason: `check ${intentId}` });
       const checkResult = await this.safeRun(() =>
-        runner.runTests({ ...files, [CHECK_TEST_PATH]: checkTestSource(intent) }, { filter: CHECK_TEST_NAME }),
+        runner.runTests({ ...files, [CHECK_TEST_PATH]: checkTestSource(intent, files[intent.target.file]) }, { filter: CHECK_TEST_NAME }),
       );
       onEvent({ type: "test_run_finished", runId: checkRun, rev, result: checkResult });
-      if (!checkResult.ok) {
+      const verdict = classifyCheck(checkResult);
+      if (verdict === "failed") {
         intents.setStatus(intentId, "failed", { rev });
         this.briefVerificationFailed(intent, checkResult);
         return;
+      }
+      if (verdict === "invalid") {
+        // The check itself could not run (ReferenceError, SyntaxError, ...): the code was not judged.
+        const firstLine = (checkResult.failures[0]?.message ?? "check did not run").split("\n").find((l) => l.trim().length > 0)?.trim() ?? "check did not run";
+        this.deps.briefings.push({
+          toAgent: intent.agentId,
+          kind: "verification_failed",
+          summary: clip(`Your check for ${intentId} could not run: ${firstLine}. Re-declare with a self-contained check; code was not judged.`),
+          details: { intentId, file: intent.target.file, symbol: intent.target.symbol, failingTests: checkResult.failures.slice(0, 3) },
+          requiresAck: false,
+        });
       }
     }
 
@@ -273,21 +285,68 @@ export class TestOrchestrator {
   }
 }
 
-/** The temp vitest file that proves an intent's `check` lines against the live files. */
-export function checkTestSource(intent: Intent): string {
+/**
+ * The temp vitest file that proves an intent's `check` lines against the live files.
+ * Imports the whole target module and binds every value export of that file locally, so check
+ * lines may reference sibling exports (e.g. `TAX_RATES` next to `applyTax`), not only the target symbol.
+ */
+export function checkTestSource(intent: Intent, fileContent?: string): string {
   const file = intent.target.file.replace(/\.tsx?$/, "");
-  const symbol = intent.target.symbol;
-  const validIdent = /^[A-Za-z_$][\w$]*$/.test(symbol);
+  const names = new Set<string>();
+  if (isIdent(intent.target.symbol)) names.add(intent.target.symbol);
+  for (const n of exportedValueNames(fileContent ?? "")) names.add(n);
+  const bindings = [...names].filter((n) => !RESERVED.has(n));
   const lines = [
-    `import { it, expect } from "vitest";`,
+    `import { describe, expect, it } from "vitest";`,
     `import * as __target from "../${file}.js";`,
-    validIdent ? `const ${symbol} = (__target as Record<string, unknown>)["${symbol}"] as any;` : "",
+    bindings.length > 0 ? `const { ${bindings.join(", ")} } = __target as Record<string, any>;` : "",
+    `void describe;`,
     `it("${CHECK_TEST_NAME} ${intent.id}", () => {`,
     ...intent.check!.split("\n").map((l) => `  ${l}`),
     `});`,
     "",
   ];
   return lines.filter((l) => l !== "").join("\n");
+}
+
+export type CheckVerdict = "ok" | "failed" | "invalid";
+
+const RUNTIME_ERROR = /\b(ReferenceError|SyntaxError|TypeError|RangeError|EvalError|URIError)\b|is not defined|Failed to parse source|Transform failed|Cannot find (module|package)|failed to run/;
+
+/**
+ * `ok` when the check passed, `failed` when at least one failure is a real assertion
+ * (vitest reports `AssertionError`), `invalid` when the check could not run at all
+ * (ReferenceError/SyntaxError/TypeError, import failure, runner crash): the code was not judged.
+ */
+export function classifyCheck(result: TestResult): CheckVerdict {
+  if (result.ok) return "ok";
+  if (result.failures.length === 0) return "invalid";
+  if (result.failures.some((f) => /AssertionError/.test(f.message))) return "failed";
+  if (result.failures.some((f) => RUNTIME_ERROR.test(f.message) || f.name === "vitest" || f.name === "runner" || f.name.endsWith(CHECK_TEST_PATH))) return "invalid";
+  return "failed";
+}
+
+const RESERVED = new Set(["it", "expect", "describe", "default", "__target"]);
+
+function isIdent(s: string): boolean {
+  return /^[A-Za-z_$][\w$]*$/.test(s);
+}
+
+/** Names of the runtime (value) exports of a TS module: functions, classes, consts, enums and `export { a, b as c }` lists. Types and interfaces are skipped. */
+export function exportedValueNames(source: string): string[] {
+  const out = new Set<string>();
+  const decl = /^\s*export\s+(?:default\s+)?(?:async\s+)?(?:function\s*\*?|class|const|let|var|enum|abstract\s+class)\s+([A-Za-z_$][\w$]*)/gm;
+  for (const m of source.matchAll(decl)) out.add(m[1]!);
+  const list = /^\s*export\s*(?!type\b)\{([^}]*)\}/gm;
+  for (const m of source.matchAll(list)) {
+    for (const part of m[1]!.split(",")) {
+      const seg = part.trim();
+      if (!seg || seg.startsWith("type ")) continue;
+      const name = (seg.split(/\s+as\s+/)[1] ?? seg.split(/\s+as\s+/)[0] ?? "").trim();
+      if (isIdent(name)) out.add(name);
+    }
+  }
+  return [...out];
 }
 
 function clip(s: string, max = 400): string {

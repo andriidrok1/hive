@@ -3,7 +3,8 @@ import { describe, expect, it } from "vitest";
 import { History, ProjectStore, ReadLog } from "../../src/core/index.js";
 import { BriefingQueue, CallGraph, IntentRegistry } from "../../src/coord/index.js";
 import { CulpritFinder } from "../../src/runner/CulpritFinder.js";
-import { checkTestSource, CHECK_TEST_PATH, TestOrchestrator, type TestOrchestratorDeps } from "../../src/runner/TestOrchestrator.js";
+import { checkTestSource, CHECK_TEST_PATH, classifyCheck, exportedValueNames, TestOrchestrator, type TestOrchestratorDeps } from "../../src/runner/TestOrchestrator.js";
+import { LocalRunner } from "../../src/runner/LocalRunner.js";
 import { applyAll, breakDiscount, harmlessFormatChange, taxInCalculateTotal, taxLineInOrderSummary } from "./fixtures/changeSets.js";
 import { DEMO_APP_FILES } from "./fixtures/demoApp.js";
 
@@ -95,13 +96,13 @@ function intentOf(cs: ChangeSet, extra: Partial<Intent> = {}): Intent {
 }
 
 /** Runner whose verdict depends on the files, so the culprit finder gets meaningful variants. */
-function predicateRunner(isGreen: (files: Record<string, string>) => boolean) {
+function predicateRunner(isGreen: (files: Record<string, string>) => boolean, failureMessage = "AssertionError: expected 9000 to be 9653") {
   const calls: { files: Record<string, string>; filter?: string }[] = [];
   const runner: Runner = {
     async runTests(files, opts) {
       calls.push({ files, filter: opts?.filter });
       const ok = isGreen(files);
-      const r: TestResult = { ok, passed: ok ? 5 : 4, failed: ok ? 0 : 1, failures: ok ? [] : [{ name: "calculateTotal > applies a percent promo", message: "expected 9000" }], durationMs: 3 };
+      const r: TestResult = { ok, passed: ok ? 5 : 4, failed: ok ? 0 : 1, failures: ok ? [] : [{ name: "calculateTotal > applies a percent promo", message: failureMessage }], durationMs: 3 };
       return r;
     },
     async runCommand() {
@@ -119,6 +120,7 @@ function setup(opts: {
   readers?: Record<string, string[]>;
   callers?: { file: string; line: number; caller: string | null; callee: string }[];
   mode?: "hive" | "naive" | "isolated";
+  failureMessage?: string;
 }) {
   const store = fakeStore(opts.files, 10);
   const green: Snapshot = { rev: 0, files: { ...DEMO_APP_FILES }, green: true, at: 0 };
@@ -126,7 +128,7 @@ function setup(opts: {
   const intents = fakeIntents(opts.intents);
   const briefings = fakeBriefings();
   const events: FeedEventBody[] = [];
-  const { runner, calls } = predicateRunner(opts.isGreen);
+  const { runner, calls } = predicateRunner(opts.isGreen, opts.failureMessage);
   const deps: TestOrchestratorDeps = {
     store,
     history,
@@ -270,6 +272,50 @@ describe("TestOrchestrator", () => {
     expect(t.history.snapshots.filter((s) => s.green).length).toBe(1);
   });
 
+  it("9d. invalid check (ReferenceError) -> not failed, non-blocking briefing to the owner, suite still runs", async () => {
+    const cs = harmlessFormatChange();
+    const t = setup({
+      files: DEMO_APP_FILES,
+      changeSets: [cs],
+      intents: [intentOf(cs, { target: { file: "src/checkout.ts", symbol: "calculateTotal" }, check: `expect(calculateTotal(items)).toBe(10000);` })],
+      isGreen: (files) => !(CHECK_TEST_PATH in files),
+      failureMessage: "ReferenceError: items is not defined\n ❯ test/__hive_check__.test.ts:5:30",
+      readers: { "src/checkout.ts#calculateTotal": ["agent-masha"] },
+    });
+    await t.orchestrator.onIntentFinished("A1");
+    expect(t.calls.map((c) => c.filter)).toEqual(["__hive_check__", undefined]);
+    expect(t.intents.statuses).toEqual([{ id: "A1", status: "verified" }]);
+    expect(t.briefings.all.length).toBe(1);
+    const b = t.briefings.all[0]!;
+    expect(b.toAgent).toBe("agent-andrii");
+    expect(b.kind).toBe("verification_failed");
+    expect(b.requiresAck).toBe(false);
+    expect(b.summary).toBe("Your check for A1 could not run: ReferenceError: items is not defined. Re-declare with a self-contained check; code was not judged.");
+    expect(t.history.snapshots.filter((s) => s.green).length).toBe(2);
+    expect(t.events.map((e) => e.type)).toEqual(["test_run_started", "test_run_finished", "test_run_started", "test_run_finished"]);
+  });
+
+  it("9e. classifyCheck on real vitest output: ReferenceError/SyntaxError -> invalid, expect failure -> failed", async () => {
+    const local = new LocalRunner({ templateDir: "demo-app" });
+    const run = (check: string) => {
+      const intent = intentOf(harmlessFormatChange(), { id: "C1", target: { file: "src/tax.ts", symbol: "applyTax" }, check });
+      return local.runTests({ ...DEMO_APP_FILES, [CHECK_TEST_PATH]: checkTestSource(intent, DEMO_APP_FILES["src/tax.ts"]) }, { filter: "__hive_check__" });
+    };
+    const [ref, syntax, type, assertion, ok] = await Promise.all([
+      run(`expect(applyTax(items, "CA")).toBe(10725);`),
+      run(`expect(applyTax(10000, "CA")).toBe(10725;`),
+      run(`expect(applyTax.nope()).toBe(1);`),
+      run(`expect(applyTax(10000, "CA")).toBe(1);`),
+      run(`expect(applyTax(10000, "CA")).toBe(10725);`),
+    ]);
+    expect(classifyCheck(ref)).toBe("invalid");
+    expect(classifyCheck(syntax)).toBe("invalid");
+    expect(classifyCheck(type)).toBe("invalid");
+    expect(classifyCheck(assertion)).toBe("failed");
+    expect(classifyCheck(ok)).toBe("ok");
+    expect(ref.failures[0]!.message).toContain("items is not defined");
+  }, 90_000);
+
   it("9b. check passes -> suite runs next and the intent is verified", async () => {
     const cs = harmlessFormatChange();
     const t = setup({
@@ -306,8 +352,39 @@ describe("TestOrchestrator", () => {
   it("checkTestSource imports the target with a .js extension and wraps the lines in one it()", () => {
     const cs = harmlessFormatChange();
     const src = checkTestSource(intentOf(cs, { id: "Z1", target: { file: "src/checkout.ts", symbol: "calculateTotal" }, check: "expect(calculateTotal([])).toBe(0);" }));
+    expect(src).toContain(`import { describe, expect, it } from "vitest";`);
     expect(src).toContain(`import * as __target from "../src/checkout.js";`);
     expect(src).toContain(`it("__hive_check__ Z1"`);
     expect(src).toContain("  expect(calculateTotal([])).toBe(0);");
   });
+
+  it("checkTestSource binds every value export of the target file, not only the target symbol", () => {
+    const cs = harmlessFormatChange();
+    const src = checkTestSource(intentOf(cs, { id: "Z2", target: { file: "src/tax.ts", symbol: "applyTax" }, check: "expect(1).toBe(1);" }), DEMO_APP_FILES["src/tax.ts"]);
+    expect(src).toContain("const { applyTax, TAX_RATES } = __target");
+    expect(src).not.toMatch(/\bState\b/); // types are not runtime values
+    expect(exportedValueNames(DEMO_APP_FILES["src/checkout.ts"]!).sort()).toEqual(["calculateTotal", "subtotal"]);
+    expect(exportedValueNames(`export class A {}\nexport default function b() {}\nexport enum E {}\nexport type T = 1;\nexport interface I {}\nconst c = 1, d = 2;\nexport { c, d as dee, type T as TT };\nexport let l = 1;`).sort()).toEqual(["A", "E", "b", "c", "dee", "l"]);
+  });
+
+  it("9c. a check that references a sibling export (TAX_RATES next to applyTax) passes on the real LocalRunner", async () => {
+    const local = new LocalRunner({ templateDir: "demo-app" });
+    const cs = harmlessFormatChange();
+    const intent = intentOf(cs, {
+      id: "T1",
+      target: { file: "src/tax.ts", symbol: "applyTax" },
+      check: `expect(applyTax(10000, "CA")).toBe(Math.round(10000 * (1 + TAX_RATES.CA)));\nexpect(TAX_RATES.OR).toBe(0);`,
+    });
+    const files = { ...DEMO_APP_FILES, [CHECK_TEST_PATH]: checkTestSource(intent, DEMO_APP_FILES["src/tax.ts"]) };
+    const r = await local.runTests(files, { filter: "__hive_check__" });
+    expect(r.failures).toEqual([]);
+    expect(r.ok).toBe(true);
+    expect(r.passed).toBe(1);
+
+    // and a failing check is still red
+    const bad = { ...intent, check: `expect(applyTax(10000, "CA")).toBe(TAX_RATES.CA);` };
+    const red = await local.runTests({ ...DEMO_APP_FILES, [CHECK_TEST_PATH]: checkTestSource(bad, DEMO_APP_FILES["src/tax.ts"]) }, { filter: "__hive_check__" });
+    expect(red.ok).toBe(false);
+    expect(red.failures[0]!.name).toContain("__hive_check__ T1");
+  }, 60_000);
 });
